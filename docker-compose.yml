@@ -1,0 +1,28 @@
+# One instance = one organisation = one database.
+# Copy .env.example to .env, set APP_URL, ADMIN_EMAIL, ADMIN_PASSWORD and POSTGRES_PASSWORD, then:
+#   docker compose up -d --build
+#   docker compose exec app npm run db:seed
+# Put a reverse proxy with HTTPS (Caddy, nginx, a cloud load balancer) in front of port 3000.
+services:
+  db:
+    image: pgvector/pgvector:pg17
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: eventos
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: eventos
+    volumes: ["dbdata:/var/lib/postgresql/data"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U eventos"]
+      interval: 5s
+      retries: 10
+  app:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      db: { condition: service_healthy }
+    env_file: .env
+    environment:
+      DATABASE_URL: postgres://eventos:${POSTGRES_PASSWORD}@db:5432/eventos
+    ports: ["127.0.0.1:3000:3000"]
+volumes: { dbdata: {} }

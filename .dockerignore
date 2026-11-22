@@ -1,0 +1,7 @@
+node_modules
+.next
+.data
+.env
+seed-output.txt
+test-output.txt
+*.zip
