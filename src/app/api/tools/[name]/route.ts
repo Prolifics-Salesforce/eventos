@@ -1,5 +1,6 @@
 import "@/tools";
 import { getDb } from "@/db/client";
+import { deliverSoon } from "@/lib/deliver";
 import { principalForApiKey } from "@/platform/principal";
 import { invoke } from "@/platform/tools";
 
@@ -17,6 +18,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ nam
 
   const input = await request.json().catch(() => ({}));
   const result = await invoke(db, principal, (await params).name, input);
+  deliverSoon();
   const status = result.status === "error" && result.code === "unknown_tool" ? 404 : HTTP[result.status];
   return Response.json(result, { status });
 }

@@ -6,11 +6,13 @@ import { revalidatePath } from "next/cache";
 import { getDb } from "@/db/client";
 import { SESSION_MAX_AGE, signIn, signOut } from "@/platform/auth";
 import { servicePrincipal } from "@/platform/seed";
+import { limitClear, limitCount, limitHit } from "@/platform/limits";
 import { askConcierge } from "@/agents/concierge";
 import { eq } from "drizzle-orm";
 import { event } from "@/db/schema";
 import { randomUUID } from "node:crypto";
 import { decideApproval, invoke, type InvokeResult } from "@/platform/tools";
+import { deliverSoon } from "@/lib/deliver";
 import { requirePrincipal, SESSION_COOKIE } from "@/lib/session";
 import { zonedToIso } from "@/lib/when";
 import "@/tools";
@@ -40,6 +42,7 @@ function explain(result: InvokeResult): string {
 
 /** Finish an action: back to `path`, with the reason on the URL when it failed, or `ok` text when it worked. */
 function done(path: string, result: InvokeResult, ok?: string): never {
+  deliverSoon();
   const join = path.includes("?") ? "&" : "?";
   if (result.status !== "ok") redirect(`${path}${join}notice=${encodeURIComponent(explain(result))}`);
   revalidatePath(path.split("?")[0]);
@@ -52,20 +55,18 @@ function returnTo(form: FormData, fallback: string): string {
   return value && /^\/(events|inbox|runs|agents|team)[\w\-/?=&%.+]*$/.test(value) ? value : fallback;
 }
 
-// Five wrong passwords for one email locks sign-in for that email for 15 minutes. In memory: one server only.
-const failures = new Map<string, { count: number; until: number }>();
-
+// Five wrong passwords for one email locks sign-in for that email for 15 minutes. Counted in the database, so every process agrees.
 export async function signInAction(form: FormData) {
-  const email = (text(form, "email") ?? "").toLowerCase();
-  const seen = failures.get(email);
-  if (seen && seen.count >= 5 && seen.until > Date.now()) redirect("/signin?notice=" + encodeURIComponent("Too many attempts. Try again in 15 minutes."));
-  const token = await signIn(await getDb(), email, String(form.get("password") ?? ""));
+  const email = (text(form, "email") ?? "").toLowerCase().slice(0, 200);
+  const db = await getDb();
+  const key = `signin:${email}`;
+  if ((await limitCount(db, key)) >= 5) redirect("/signin?notice=" + encodeURIComponent("Too many attempts. Try again in 15 minutes."));
+  const token = await signIn(db, email, String(form.get("password") ?? ""));
   if (!token) {
-    const fresh = seen && seen.until > Date.now() ? seen : { count: 0, until: Date.now() + 15 * 60_000 };
-    failures.set(email, { ...fresh, count: fresh.count + 1 });
+    await limitHit(db, key, 15 * 60_000);
     redirect("/signin?notice=" + encodeURIComponent("That email and password do not match"));
   }
-  failures.delete(email);
+  await limitClear(db, key);
   // Secure whenever the site is served over HTTPS; plain http://localhost still works for local runs.
   const secure = (await headers()).get("x-forwarded-proto") === "https" || (process.env.APP_URL ?? "").startsWith("https://");
   (await cookies()).set(SESSION_COOKIE, token, { httpOnly: true, sameSite: "lax", secure, path: "/", maxAge: SESSION_MAX_AGE });
@@ -206,6 +207,7 @@ export async function registerGuestAction(form: FormData) {
     eventSlug: slug, email: text(form, "email"), firstName: text(form, "firstName"), lastName: text(form, "lastName"),
     phone: text(form, "phone"), whatsappOptIn: form.get("whatsappOptIn") === "on", answers: answersFrom(form),
   });
+  deliverSoon();
   redirect(result.status === "ok" ? `${path}?done=${result.output.status === "waitlisted" ? "wait" : "1"}` : `${path}?notice=${encodeURIComponent(explain(result))}`);
 }
 
@@ -244,8 +246,7 @@ export async function changePasswordAction(form: FormData) {
   }), "Password changed");
 }
 
-// One visitor address may ask the Concierge 30 questions an hour. In memory: one server only.
-const asked = new Map<string, { count: number; until: number }>();
+// One visitor address may ask the Concierge 30 questions an hour. Counted in the database, so every process agrees.
 const CONCIERGE_COOKIE = "eventos_chat";
 
 export async function askConciergeAction(form: FormData) {
@@ -256,10 +257,7 @@ export async function askConciergeAction(form: FormData) {
   if (!target || target.status !== "live") redirect(`/e/${slug}`);
 
   const address = (await headers()).get("x-forwarded-for")?.split(",")[0].trim() ?? "local";
-  const seen = asked.get(address);
-  const window = seen && seen.until > Date.now() ? seen : { count: 0, until: Date.now() + 3600_000 };
-  if (window.count >= 30) redirect(`${path}?notice=${encodeURIComponent("Too many questions for now. Please try again later.")}`);
-  asked.set(address, { ...window, count: window.count + 1 });
+  if ((await limitHit(db, `ask:${address.slice(0, 80)}`, 3600_000)) > 30) redirect(`${path}?notice=${encodeURIComponent("Too many questions for now. Please try again later.")}`);
 
   const jar = await cookies();
   let chat = jar.get(CONCIERGE_COOKIE)?.value;
@@ -378,6 +376,7 @@ export async function rsvpAction(form: FormData) {
   const registrationId = text(form, "registrationId") ?? "";
   const path = await guestPath(db, registrationId);
   const result = await invoke(db, await servicePrincipal(db, "Public site"), "registration.rsvp", { registrationId, answer: text(form, "answer"), answers: answersFrom(form) });
+  deliverSoon();
   redirect(result.status === "ok" ? path : `${path}?notice=${encodeURIComponent(explain(result))}`);
 }
 
@@ -386,6 +385,7 @@ export async function guestCancelAction(form: FormData) {
   const registrationId = text(form, "registrationId") ?? "";
   const path = await guestPath(db, registrationId);
   const result = await invoke(db, await servicePrincipal(db, "Public site"), "registration.cancel", { registrationId });
+  deliverSoon();
   redirect(result.status === "ok" ? path : `${path}?notice=${encodeURIComponent(explain(result))}`);
 }
 

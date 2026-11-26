@@ -1,11 +1,13 @@
 import { desc, eq } from "drizzle-orm";
 import { getDb } from "@/db/client";
+import { requirePrincipal } from "@/lib/session";
 import { sysAudit, sysOutbox, sysUser } from "@/db/schema";
 import { initials, sentence } from "@/lib/describe";
 
 const fmt = (d: Date) => new Intl.DateTimeFormat("en-IN", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit", timeZone: "Asia/Kolkata" }).format(d);
 
 export default async function Activity() {
+  await requirePrincipal();
   const db = await getDb();
   const [calls, messages] = await Promise.all([
     db.select({ a: sysAudit, actor: sysUser.name }).from(sysAudit).leftJoin(sysUser, eq(sysUser.id, sysAudit.actorId)).orderBy(desc(sysAudit.id)).limit(120),

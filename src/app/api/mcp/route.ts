@@ -7,6 +7,7 @@
 import { z } from "zod";
 import "@/tools";
 import { getDb } from "@/db/client";
+import { deliverSoon } from "@/lib/deliver";
 import { principalForApiKey } from "@/platform/principal";
 import { invoke, listTools } from "@/platform/tools";
 
@@ -47,6 +48,7 @@ export async function POST(request: Request) {
         const tool = mine().find((t) => wire(t.name) === message.params?.name);
         if (!tool) return { jsonrpc: "2.0", id: message.id, error: { code: -32602, message: "Unknown tool" } };
         const result = await invoke(db, principal, tool.name, message.params?.arguments ?? {});
+        deliverSoon();
         return reply({ content: [{ type: "text", text: JSON.stringify(result.status === "ok" ? result.output : result) }], isError: result.status !== "ok" && result.status !== "pending_approval" });
       }
       default:

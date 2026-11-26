@@ -202,3 +202,10 @@ td.num form.actions { flex-wrap: nowrap; } td.num, th.num { text-align: right; f
 .badge svg { width: 28mm; height: 28mm; margin: 0 auto; display: block; } .badge .rg { font: 500 8pt var(--text); color: #666; margin-top: 1mm; }
 .printbar { position: sticky; top: 0; background: var(--night); color: var(--ink); padding: 12px 20px; display: flex; gap: 14px; align-items: center; }
 @media print { .printbar { display: none; } .badges { padding: 0; gap: 4mm; } @page { margin: 8mm; } }
+
+/* Loading: the shape of a screen, shown while its data is on the way */
+.loading { display: grid; gap: 14px; padding-top: 6px; }
+.bone { border-radius: var(--r-s); background: linear-gradient(90deg, var(--deck) 25%, var(--rise) 45%, var(--deck) 65%); background-size: 300% 100%; animation: shimmer 1.4s ease-in-out infinite; }
+.bone.title { height: 34px; width: min(320px, 70%); } .bone.line { height: 14px; width: min(460px, 85%); margin-bottom: 14px; }
+.bone.block { height: 92px; border-radius: var(--r-m); margin-bottom: 10px; } .bone.row { height: 52px; }
+@keyframes shimmer { from { background-position: 100% 0; } to { background-position: 0 0; } }

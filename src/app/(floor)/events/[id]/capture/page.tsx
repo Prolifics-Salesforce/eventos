@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { eq } from "drizzle-orm";
 import { getDb } from "@/db/client";
+import { requirePrincipal } from "@/lib/session";
 import { event, formField } from "@/db/schema";
 import { and } from "drizzle-orm";
 import { FieldInputs } from "@/components/field-inputs";
@@ -11,6 +12,7 @@ export default async function Capture({ params, searchParams }: { params: Promis
   const { id } = await params;
   const { notice, ok } = await searchParams;
   if (!/^[0-9a-f-]{36}$/i.test(id)) notFound();
+  await requirePrincipal();
   const db = await getDb();
   const [e] = await db.select().from(event).where(eq(event.id, id));
   if (!e) notFound();

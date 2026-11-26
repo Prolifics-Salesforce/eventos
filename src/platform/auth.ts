@@ -1,8 +1,8 @@
 import { createHash, randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
 import { and, eq, gt, lt } from "drizzle-orm";
 import type { Db } from "@/db/client";
-import { sysSession, sysUser } from "@/db/schema";
-import { loadPrincipal, type Principal } from "./principal";
+import { sysRole, sysSession, sysUser, sysUserRole } from "@/db/schema";
+import type { Principal } from "./principal";
 
 const SESSION_DAYS = 14;
 const sha256 = (value: string) => createHash("sha256").update(value).digest("hex");
@@ -39,11 +39,14 @@ export async function signIn(db: Db, email: string, password: string): Promise<s
 }
 
 export async function principalForSession(db: Db, token: string): Promise<Principal | null> {
-  const [row] = await db
-    .select({ userId: sysSession.userId })
-    .from(sysSession)
-    .where(and(eq(sysSession.tokenHash, sha256(token)), gt(sysSession.expiresAt, new Date())));
-  return row ? loadPrincipal(db, row.userId) : null;
+  // Runs on every page, so the person and their roles are read together, in one trip to the database.
+  const valid = and(eq(sysSession.tokenHash, sha256(token)), gt(sysSession.expiresAt, new Date()));
+  const [[user], roles] = await Promise.all([
+    db.select({ id: sysUser.id, kind: sysUser.kind, name: sysUser.name, active: sysUser.active }).from(sysSession).innerJoin(sysUser, eq(sysUser.id, sysSession.userId)).where(valid),
+    db.select({ permissions: sysRole.permissions }).from(sysSession).innerJoin(sysUserRole, eq(sysUserRole.userId, sysSession.userId)).innerJoin(sysRole, eq(sysRole.id, sysUserRole.roleId)).where(valid),
+  ]);
+  if (!user || !user.active) return null;
+  return { id: user.id, kind: user.kind, name: user.name, permissions: new Set(roles.flatMap((r) => r.permissions)) };
 }
 
 export async function signOut(db: Db, token: string): Promise<void> {

@@ -6,7 +6,10 @@ export type OutboxMessage = typeof sysOutbox.$inferSelect;
 /** A driver delivers one message or throws. Email, WhatsApp and webhooks each get one. */
 export type Driver = (message: OutboxMessage) => Promise<void>;
 
-const drivers = new Map<Channel, Driver>();
+// Kept on globalThis for the same reason as the event subscribers: a driver set through one copy of
+// this module must be the one used by a drain running in another.
+const holder = globalThis as unknown as { __eventosDrivers?: Map<Channel, Driver> };
+const drivers = (holder.__eventosDrivers ??= new Map<Channel, Driver>());
 export function setDriver(channel: Channel, driver: Driver): void {
   drivers.set(channel, driver);
 }

@@ -2,12 +2,14 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { and, asc, eq } from "drizzle-orm";
 import { getDb } from "@/db/client";
+import { requirePrincipal } from "@/lib/session";
 import { sysAudit, sysJournal, task } from "@/db/schema";
 import { ago, initials, stepLabel } from "@/lib/describe";
 
 export default async function Run({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   if (!/^[0-9a-f-]{36}$/i.test(id)) notFound();
+  await requirePrincipal();
   const db = await getDb();
   const [run] = await db.select().from(task).where(and(eq(task.id, id), eq(task.taskType, "agent_run")));
   if (!run) notFound();

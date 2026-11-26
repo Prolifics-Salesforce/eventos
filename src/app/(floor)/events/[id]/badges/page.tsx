@@ -2,12 +2,14 @@ import { notFound } from "next/navigation";
 import { and, asc, eq, inArray } from "drizzle-orm";
 import QRCode from "qrcode";
 import { getDb } from "@/db/client";
+import { requirePrincipal } from "@/lib/session";
 import { contact, event, registration } from "@/db/schema";
 
 /** One badge per registered guest, sized 86 by 120 mm, ready for the browser's Print. */
 export default async function Badges({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   if (!/^[0-9a-f-]{36}$/i.test(id)) notFound();
+  await requirePrincipal();
   const db = await getDb();
   const [e] = await db.select().from(event).where(eq(event.id, id));
   if (!e) notFound();

@@ -1,10 +1,12 @@
 import { and, desc, eq } from "drizzle-orm";
 import { getDb } from "@/db/client";
+import { requirePrincipal } from "@/lib/session";
 import { sysUser, task } from "@/db/schema";
 import { Intent } from "@/components/intent";
 
 export default async function Inbox({ searchParams }: { searchParams: Promise<{ notice?: string }> }) {
   const { notice } = await searchParams;
+  await requirePrincipal();
   const db = await getDb();
   const rows = await db.select({ t: task, by: sysUser.name }).from(task).leftJoin(sysUser, eq(sysUser.id, task.createdBy))
     .where(and(eq(task.taskType, "approval"), eq(task.state, "awaiting_approval"))).orderBy(desc(task.createdAt));

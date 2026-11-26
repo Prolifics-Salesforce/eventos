@@ -8,13 +8,11 @@ export type Principal = { id: string; kind: PrincipalKind; name: string; permiss
 
 /** Permissions are resolved from the database on every load, so a revocation is immediate. */
 export async function loadPrincipal(db: Db, userId: string): Promise<Principal | null> {
-  const [user] = await db.select().from(sysUser).where(eq(sysUser.id, userId));
+  const [[user], roles] = await Promise.all([
+    db.select().from(sysUser).where(eq(sysUser.id, userId)),
+    db.select({ permissions: sysRole.permissions }).from(sysUserRole).innerJoin(sysRole, eq(sysRole.id, sysUserRole.roleId)).where(eq(sysUserRole.userId, userId)),
+  ]);
   if (!user || !user.active) return null;
-  const roles = await db
-    .select({ permissions: sysRole.permissions })
-    .from(sysUserRole)
-    .innerJoin(sysRole, eq(sysRole.id, sysUserRole.roleId))
-    .where(eq(sysUserRole.userId, userId));
   return { id: user.id, kind: user.kind, name: user.name, permissions: new Set(roles.flatMap((r) => r.permissions)) };
 }
 

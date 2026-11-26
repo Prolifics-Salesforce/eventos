@@ -4,15 +4,19 @@ import { getDb } from "@/db/client";
 import { event, registration } from "@/db/schema";
 import { createEventAction } from "@/app/actions";
 import { countdown } from "@/lib/describe";
+import { requirePrincipal } from "@/lib/session";
 
 const KIND = { booth: "Booth", field: "Field event", conference: "Conference" } as const;
 
 export default async function Events({ searchParams }: { searchParams: Promise<{ notice?: string }> }) {
   const { notice } = await searchParams;
+  await requirePrincipal();
   const db = await getDb();
-  const rows = await db.select({ event, registrations: count(registration.id) }).from(event)
-    .leftJoin(registration, eq(registration.eventId, event.id)).groupBy(event.id).orderBy(asc(event.startsAt));
-  const checked = await db.select({ eventId: registration.eventId, n: count() }).from(registration).where(and(isNotNull(registration.checkedInAt))).groupBy(registration.eventId);
+  const [rows, checked] = await Promise.all([
+    db.select({ event, registrations: count(registration.id) }).from(event)
+      .leftJoin(registration, eq(registration.eventId, event.id)).groupBy(event.id).orderBy(asc(event.startsAt)),
+    db.select({ eventId: registration.eventId, n: count() }).from(registration).where(and(isNotNull(registration.checkedInAt))).groupBy(registration.eventId),
+  ]);
   return (
     <>
       <div className="head"><div><h1>Events</h1><p className="muted">Booths, field events and conferences, in date order.</p></div></div>

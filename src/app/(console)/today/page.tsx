@@ -11,7 +11,7 @@ const DAY = 86_400_000;
 export default async function Today() {
   const me = await requirePrincipal();
   const db = await getDb();
-  const [events, approvals, ledger, runs] = await Promise.all([
+  const [events, approvals, ledger, runs, [{ n: waiting }]] = await Promise.all([
     db.select({ e: event, guests: count(registration.id) }).from(event).leftJoin(registration, eq(registration.eventId, event.id))
       .where(ne(event.status, "archived")).groupBy(event.id).orderBy(asc(event.startsAt)),
     db.select({ t: task, by: sysUser.name }).from(task).leftJoin(sysUser, eq(sysUser.id, task.createdBy))
@@ -19,6 +19,7 @@ export default async function Today() {
     db.select({ a: sysAudit, name: sysUser.name }).from(sysAudit).leftJoin(sysUser, eq(sysUser.id, sysAudit.actorId))
       .where(and(inArray(sysAudit.status, ["ok", "held"]), inArray(sysAudit.actorKind, ["agent", "service"]))).orderBy(desc(sysAudit.id)).limit(60),
     db.select().from(task).where(and(eq(task.taskType, "agent_run"), inArray(task.state, ["open", "in_progress"]))),
+    db.select({ n: count() }).from(task).where(and(eq(task.taskType, "approval"), eq(task.state, "awaiting_approval"))),
   ]);
   const now = Date.now();
   // Fold repeats ("System sent a confirmation" twelve times) into one line with a count.
@@ -30,7 +31,6 @@ export default async function Today() {
     else if (feed.length < 8) feed.push({ key: a.id, kind: a.actorKind, name: name ?? "?", text, at: a.at, times: 1 });
   }
   const live = events.filter((x) => x.e.status === "live").length;
-  const [{ n: waiting }] = await db.select({ n: count() }).from(task).where(and(eq(task.taskType, "approval"), eq(task.state, "awaiting_approval")));
 
   // The season: from a week ago to the furthest event, at least six weeks out.
   const dated = events.filter((x) => x.e.startsAt);

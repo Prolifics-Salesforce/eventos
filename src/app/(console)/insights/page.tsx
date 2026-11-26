@@ -2,12 +2,15 @@ import Link from "next/link";
 import { asc, ne } from "drizzle-orm";
 import { getDb } from "@/db/client";
 import { event } from "@/db/schema";
-import { eventInsights, money } from "@/lib/insights";
+import { insightsFor, money } from "@/lib/insights";
+import { requirePrincipal } from "@/lib/session";
 
 export default async function Portfolio() {
+  await requirePrincipal();
   const db = await getDb();
   const events = await db.select().from(event).where(ne(event.status, "archived")).orderBy(asc(event.startsAt));
-  const rows = await Promise.all(events.map(async (e) => ({ e, i: await eventInsights(db, e.id) })));
+  const figures = await insightsFor(db, events);
+  const rows = events.map((e) => ({ e, i: figures.get(e.id)! }));
   const sum = (f: (r: (typeof rows)[number]) => number) => rows.reduce((t, r) => t + f(r), 0);
   const cost = sum((r) => r.i.money.actual ?? r.i.money.planned);
   const pipeline = sum((r) => r.i.money.pipeline);

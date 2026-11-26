@@ -4,18 +4,13 @@ export async function register() {
   const { getDb } = await import("@/db/client");
   const { ensurePlatform } = await import("@/platform/seed");
   const { startWorker } = await import("@/platform/worker");
-  await ensurePlatform(await getDb());
-  await import("@/rules");
-  const { registerWebhooks, webhookDriver } = await import("@/platform/webhooks");
-  const { setDriver: setChannelDriver } = await import("@/platform/outbox");
-  registerWebhooks();
-  setChannelDriver("webhook", webhookDriver(getDb));
-
-  if (process.env.SMTP_URL) {
-    const { smtpDriver } = await import("@/platform/mail");
-    const { setDriver } = await import("@/platform/outbox");
-    setDriver("email", await smtpDriver(process.env.SMTP_URL, process.env.MAIL_FROM ?? "EventOS <no-reply@localhost>"));
-  }
+  const { wire } = await import("@/platform/wiring");
+  // On Vercel there is no long-running process: the build step sets the platform up
+  // (scripts/migrate.ts) and a scheduler drives the work through /api/cron/tick.
+  const serverless = Boolean(process.env.VERCEL);
+  if (!serverless) await ensurePlatform(await getDb());
+  await wire();
+  if (serverless) return;
 
   const { runNextAgentRun } = await import("@/agents/runtime");
   const { runSchedules } = await import("@/platform/schedules");

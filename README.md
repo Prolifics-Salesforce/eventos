@@ -94,10 +94,21 @@ from an outside font service. The console is dark by design; there is no light t
 settings in `.env`, run `docker compose up -d --build`, then `docker compose exec app npm run db:seed`.
 Put a reverse proxy with HTTPS in front of port 3000 and back up the `dbdata` volume.
 
+### On Vercel
+
+A serverless host has no long-running process, so three things work differently there:
+
+- The build (`vercel-build`) applies migrations and creates the roles and service accounts. Web processes do neither.
+- The background work (events, email, reminders, agent runs) is one pass of `/api/cron/tick`, called every minute by the
+  cron in `vercel.json`. Set `CRON_SECRET`; the route refuses calls without it. Per-minute cron needs a paid Vercel plan.
+- Set `DATABASE_URL` to a hosted Postgres, using its pooled address, and keep the function region next to the database.
+
+Email and agent work therefore start within about a minute of being queued, not within seconds.
+
 ## Not here yet
 
 WhatsApp delivery, a native Salesforce or HubSpot sync (webhooks are the bridge for now), single sign-on,
 an attendee mobile app, attendee networking, sponsor and exhibitor management, ticketing and payments,
 virtual and hybrid sessions, a page and email designer, QR scanning at the desk, memory across events,
-a light theme, and a separate worker process: the background worker and the rate limiters run inside
-the web process, which is right for one server only.
+a light theme, and a separate worker process for a multi-server install: outside Vercel the background
+worker runs inside the web process, which is right for one server only.

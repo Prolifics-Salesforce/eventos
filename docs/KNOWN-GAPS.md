@@ -26,6 +26,6 @@ An honest list of what this build does not do, as of 19 November 2026. Read it b
 
 ## Limits of the current design
 
-- The background worker, sign-in lockout and Concierge limits live in the web process: correct for one server, wrong for several.
+- Outside Vercel the background worker lives in the web process: correct for one server, wrong for several. Sign-in lockout and Concierge limits are counted in the database.
 - Times are entered and shown in India Standard Time in several places; currency defaults to INR.
 - `sys_dictionary` (custom fields) and `account` (companies) are in the data model but nothing uses them yet.

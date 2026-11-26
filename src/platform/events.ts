@@ -5,7 +5,10 @@ import { sysEvent } from "@/db/schema";
 export type DomainEvent = { id: number; name: string; payload: Record<string, unknown>; actorId: string | null; at: Date };
 export type Subscriber = (db: Db, event: DomainEvent) => Promise<void>;
 
-const subscribers = new Map<string, Subscriber[]>();
+// Kept on globalThis: the server loads this module more than once (start-up code and each route get their own copy),
+// and a reaction registered through one copy must be seen by a drain running in another.
+const holder = globalThis as unknown as { __eventosSubscribers?: Map<string, Subscriber[]> };
+const subscribers = (holder.__eventosSubscribers ??= new Map<string, Subscriber[]>());
 
 /** Register a reaction to a domain event. "*" receives everything. Rules, webhooks and agents all subscribe here. */
 export function subscribe(name: string, fn: Subscriber): () => void {

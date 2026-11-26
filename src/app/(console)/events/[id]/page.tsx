@@ -9,6 +9,7 @@ import {
 } from "@/app/actions";
 import { ago, countdown } from "@/lib/describe";
 import { eventInsights, money } from "@/lib/insights";
+import { requirePrincipal } from "@/lib/session";
 import { formatWhen } from "@/lib/when";
 
 const NEXT_STATUS: Record<EventStatus, { status: EventStatus; label: string }[]> = {
@@ -28,10 +29,13 @@ export default async function EventPage({ params, searchParams }: { params: Prom
   const { id } = await params;
   const { notice, ok, tab: asked } = await searchParams;
   if (!/^[0-9a-f-]{36}$/i.test(id)) notFound();
+  await requirePrincipal();
   const db = await getDb();
   const [e] = await db.select().from(event).where(eq(event.id, id));
   if (!e) notFound();
-  const [fields, guests, sessions, leads, tasks, notes, messages] = await Promise.all([
+  const wantsInsights = asked === "insights";
+  // Everything the page shows is asked for at once, so the page waits for the slowest query, not for the sum of them.
+  const [fields, guests, sessions, leads, tasks, notes, messages, speakers, ins, budget, comments] = await Promise.all([
     db.select().from(formField).where(eq(formField.eventId, id)).orderBy(asc(formField.position)),
     db.select({ r: registration, c: contact }).from(registration).innerJoin(contact, eq(contact.id, registration.contactId))
       .where(eq(registration.eventId, id)).orderBy(desc(registration.createdAt)),
@@ -42,11 +46,12 @@ export default async function EventPage({ params, searchParams }: { params: Prom
     db.select({ n: sysJournal, author: sysUser.name, kind: sysUser.kind }).from(sysJournal).leftJoin(sysUser, eq(sysUser.id, sysJournal.authorId))
       .where(and(eq(sysJournal.tableName, "event"), eq(sysJournal.recordId, id))).orderBy(desc(sysJournal.id)).limit(8),
     db.select().from(sysOutbox).where(eq(sysOutbox.eventId, id)).orderBy(desc(sysOutbox.createdAt)).limit(12),
+    db.select({ sessionId: sessionSpeaker.sessionId, c: contact }).from(sessionSpeaker)
+      .innerJoin(eventSession, eq(eventSession.id, sessionSpeaker.sessionId)).innerJoin(contact, eq(contact.id, sessionSpeaker.contactId)).where(eq(eventSession.eventId, id)),
+    eventInsights(db, id, e),
+    wantsInsights ? db.select().from(budgetItem).where(eq(budgetItem.eventId, id)).orderBy(asc(budgetItem.createdAt)) : [],
+    wantsInsights ? db.select().from(surveyResponse).where(eq(surveyResponse.eventId, id)).orderBy(desc(surveyResponse.createdAt)).limit(6) : [],
   ]);
-  const speakers = sessions.length
-    ? await db.select({ sessionId: sessionSpeaker.sessionId, c: contact }).from(sessionSpeaker)
-        .innerJoin(contact, eq(contact.id, sessionSpeaker.contactId)).where(inArray(sessionSpeaker.sessionId, sessions.map((s) => s.id)))
-    : [];
 
   const tabs = [
     { key: "overview", label: "Overview" }, { key: "guests", label: "Guests", n: guests.length },
@@ -57,11 +62,6 @@ export default async function EventPage({ params, searchParams }: { params: Prom
   const here = `/events/${e.id}${tab === "overview" ? "" : `?tab=${tab}`}`;
   const hidden = <><input type="hidden" name="eventId" value={e.id} /><input type="hidden" name="returnTo" value={here} /></>;
   const attended = guests.filter((g) => g.r.checkedInAt).length;
-  const ins = await eventInsights(db, id);
-  const [budget, comments] = tab === "insights" ? await Promise.all([
-    db.select().from(budgetItem).where(eq(budgetItem.eventId, id)).orderBy(asc(budgetItem.createdAt)),
-    db.select().from(surveyResponse).where(eq(surveyResponse.eventId, id)).orderBy(desc(surveyResponse.createdAt)).limit(6),
-  ]) : [[], []];
   const versus = (have: number, target: number | null) => target == null ? null : <span className={`vs ${have >= target ? "good" : "short"}`}>{have >= target ? "target met" : `${target - have} short of ${target}`}</span>;
   const awaiting = guests.filter((g) => g.r.status === "invited").length;
   const STATUS: Record<string, string> = { invited: "awaiting reply", registered: "registered", waitlisted: "on the waitlist", declined: "declined", cancelled: "cancelled", attended: "checked in", no_show: "no show" };
