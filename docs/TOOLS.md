@@ -58,6 +58,8 @@ Generated from the code. Every change to data goes through one of these tools, w
 | `registration.check_in_by_number` | checkin.write | write | Check a guest in from the number on their pass, as read from its QR code. The pass must belong to this event. |
 | `account.request_reset` | account.reset | write | Email a team member a link to choose a new password. Says the same whether or not the email belongs to anyone. |
 | `account.reset_password` | account.reset | write | Set a new password using the link from a reset email. The link works once, for an hour; using it signs the person out everywhere. |
+| `guest.request_link` | guest.portal | write | Email a guest a link to see every event they are registered for, with their passes. Says the same whether or not the email is on any guest list. |
+| `guest.sign_in` | guest.portal | write | Use the link from a guest's sign-in email. The link works once, for 30 minutes. |
 | `contact.export` | admin.manage | read | Everything held about one person, found by email: their details, registrations, leads, survey answers, messages sent to them and notes about them. |
 | `contact.erase` | admin.manage | destructive | Remove one person, found by email, and everything held about them: registrations, leads, survey answers, messages, notes, and their details in the ledger. This cannot be undone. |
 
@@ -65,11 +67,11 @@ Generated from the code. Every change to data goes through one of these tools, w
 
 | Role | Permissions |
 | --- | --- |
-| admin | all 20 |
+| admin | all 21 |
 | organiser | event.read, event.write, event.publish, session.write, contact.read, contact.write, registration.write, checkin.write, lead.write, message.send, task.write, note.write, approval.decide, agent.run, account.self, consent.write, insights.read, audit.read |
 | sales | event.read, contact.read, contact.write, lead.write, note.write, account.self, insights.read |
 | desk | event.read, contact.read, checkin.write, account.self |
-| public_site | registration.write, consent.write, account.reset |
+| public_site | registration.write, consent.write, account.reset, guest.portal |
 | system | message.send, task.write, agent.run |
 | agent_builder | event.read, event.write, event.publish, session.write, task.write, note.write |
 | agent_lead | event.read, contact.read, lead.write, message.send, task.write, note.write |

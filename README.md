@@ -47,6 +47,7 @@ curl -X POST localhost:3000/api/tools/event.create \
 
 - **Events:** booth, field and conference events; draft, live, closed, archived, cancelled; edit every detail after creation; copy an event's setup to start the next one; cancel with a notice to every guest.
 - **Guest lists:** paste a list, send invitations with a personal reply link, public registration at `/e/<slug>` with a description, picture, map link, your own questions and the agenda, places and an automatic waitlist, and, if you choose, approval of each guest before they get a place.
+- **A guest's own account:** at `/my`, a guest enters their email, gets a link, and sees every event they are registered for with the pass and QR code for each. No password.
 - **The guest's page:** one link that is the invitation reply, the pass with QR, the waitlist notice, a way to cancel, and the post-event question.
 - **On the day:** phone-first door desk with pass scanning, walk-ins and undo, booth lead capture, check-in with PIN, printable badges.
 - **Conferences:** sessions and speakers, shown on the public page.

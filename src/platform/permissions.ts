@@ -8,6 +8,8 @@ export const PERMISSIONS = [
   "insights.read", "audit.read",
   /** Asking for, and using, a password-reset link. Held only by the public site, which acts for someone not signed in. */
   "account.reset",
+  /** A guest asking for, and using, the link to their own events. Held only by the public site. */
+  "guest.portal",
 ] as const;
 export type Permission = (typeof PERMISSIONS)[number];
 
@@ -17,11 +19,11 @@ const without = (...drop: Permission[]) => all.filter((p) => !drop.includes(p));
 /** Roles created at start-up. Agents get roles exactly as people do. */
 export const DEFAULT_ROLES: Record<string, Permission[]> = {
   admin: all,
-  organiser: without("admin.manage", "account.reset"),
+  organiser: without("admin.manage", "account.reset", "guest.portal"),
   sales: ["event.read", "contact.read", "contact.write", "lead.write", "note.write", "account.self", "insights.read"],
   desk: ["event.read", "contact.read", "checkin.write", "account.self"],
   /** The public registration page acts as this service account. */
-  public_site: ["registration.write", "consent.write", "account.reset"],
+  public_site: ["registration.write", "consent.write", "account.reset", "guest.portal"],
   /** Built-in rules (confirmations, starting agent runs) act as this one. */
   system: ["message.send", "task.write", "agent.run"],
   agent_builder: ["event.read", "event.write", "event.publish", "session.write", "task.write", "note.write"],

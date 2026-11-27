@@ -14,6 +14,7 @@ import { randomUUID } from "node:crypto";
 import { decideApproval, invoke, type InvokeResult } from "@/platform/tools";
 import { deliverSoon } from "@/lib/deliver";
 import { requirePrincipal, SESSION_COOKIE } from "@/lib/session";
+import { GUEST_COOKIE, GUEST_MAX_AGE, guestCookieValue } from "@/lib/guest";
 import { DEFAULT_TIMEZONE, zonedToIso } from "@/lib/when";
 import "@/tools";
 
@@ -557,4 +558,31 @@ export async function completeResetAction(form: FormData) {
   if (result.status === "ok") redirect("/signin?ok=" + encodeURIComponent("Password changed. Sign in with the new one."));
   // A password that is too short keeps the link alive; a dead link sends them to ask for another.
   redirect(result.status === "invalid" ? `/reset/${encodeURIComponent(token)}?notice=${encodeURIComponent("Use at least 10 characters.")}` : `/reset?notice=${encodeURIComponent(explain(result))}`);
+}
+
+/* A guest's own page. Guests have no password: a link sent to their email signs them in. */
+
+export async function guestLinkAction(form: FormData) {
+  const db = await getDb();
+  const address = (await headers()).get("x-forwarded-for")?.split(",")[0].trim() ?? "local";
+  // Five requests an hour from one connection.
+  if ((await limitHit(db, `guestlink:${address.slice(0, 80)}`, 3600_000)) <= 5) {
+    await invoke(db, await servicePrincipal(db, "Public site"), "guest.request_link", { email: text(form, "email") ?? "" });
+    deliverSoon();
+  }
+  redirect("/my?sent=1");
+}
+
+export async function guestEnterAction(form: FormData) {
+  const db = await getDb();
+  const result = await invoke<{ contactId: string }>(db, await servicePrincipal(db, "Public site"), "guest.sign_in", { token: text(form, "token") ?? "" });
+  if (result.status !== "ok") redirect(`/my?notice=${encodeURIComponent(result.status === "error" ? result.message : "That link is not valid. Ask for a new one.")}`);
+  const secure = (await headers()).get("x-forwarded-proto") === "https" || (process.env.APP_URL ?? "").startsWith("https://");
+  (await cookies()).set(GUEST_COOKIE, await guestCookieValue(db, result.output.contactId), { httpOnly: true, sameSite: "lax", secure, path: "/", maxAge: GUEST_MAX_AGE });
+  redirect("/my");
+}
+
+export async function guestSignOutAction() {
+  (await cookies()).delete(GUEST_COOKIE);
+  redirect("/my");
 }

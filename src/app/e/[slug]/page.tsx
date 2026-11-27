@@ -78,6 +78,7 @@ export default async function PublicEvent({ params, searchParams }: { params: Pr
             </form>
           </>
         )}
+        <div className="small" style={{ marginTop: 16 }}><Link href="/my">Already registered? See your events and passes.</Link></div>
         {e.status === "live" && agentsEnabled() && <div className="small" style={{ marginTop: 16 }}><Link href={`/e/${e.slug}/ask`}>Have a question about this event? Ask here.</Link></div>}
       </div>
     </div>

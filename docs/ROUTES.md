@@ -24,6 +24,8 @@ Generated from `src/app`.
 | `/events/<id>/export` | endpoint | Signed-in team | `src/app/(console)/events/[id]/export/route.ts` |
 | `/inbox` | screen | Signed-in team | `src/app/(console)/inbox/page.tsx` |
 | `/insights` | screen | Signed-in team | `src/app/(console)/insights/page.tsx` |
+| `/my` | screen | A guest, signed in by a link sent to their email; otherwise it offers to send one | `src/app/my/page.tsx` |
+| `/my/enter/<token>` | screen | Whoever holds the link from the email | `src/app/my/enter/[token]/page.tsx` |
 | `/reset` | screen | Anyone (asks for a password-reset link) | `src/app/reset/page.tsx` |
 | `/reset/<token>` | screen | Whoever holds the link from the email | `src/app/reset/[token]/page.tsx` |
 | `/runs` | screen | Signed-in team | `src/app/(console)/runs/page.tsx` |

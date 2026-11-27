@@ -5,3 +5,4 @@ import "./messages";
 import "./tasks";
 import "./admin";
 import "./privacy";
+import "./portal";

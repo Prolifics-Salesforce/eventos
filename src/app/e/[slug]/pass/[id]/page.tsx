@@ -46,6 +46,7 @@ export default async function Pass({ params, searchParams }: { params: Promise<{
         <div className="tear" />
         <div className="stub">
           {notice && <div className="notice">{notice}</div>}
+          <p className="small" style={{ margin: "0 0 10px", opacity: 0.7 }}><a href="/my" style={{ color: "inherit", textDecoration: "underline" }}>All my events</a></p>
           {e.status === "cancelled" && <div className="notice">This event has been cancelled.</div>}
           {state === "pending" && (
             <>

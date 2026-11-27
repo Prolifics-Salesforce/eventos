@@ -28,7 +28,7 @@ if (!holder.__eventosRules) {
     await invoke(db, system, "message.send", {
       contactId, eventId, channel: "email",
       subject: waiting ? `You're on the waitlist for ${target.name}` : `You're registered for ${target.name}`,
-      body: [waiting ? `${target.name} is full right now. You are on the waitlist, and we will email you the moment a place opens.` : `Thanks for registering for ${target.name}.`, target.venue ? `Venue: ${target.venue}` : "", !waiting && target.confirmationNote ? `\n${target.confirmationNote}\n` : "", `Your registration number is ${reg?.number ?? ""}.`, `Your pass: ${base}/e/${target.slug}/pass/${registrationId}`, !waiting && target.startsAt ? `Add it to your calendar: ${base}/e/${target.slug}/calendar.ics` : ""]
+      body: [waiting ? `${target.name} is full right now. You are on the waitlist, and we will email you the moment a place opens.` : `Thanks for registering for ${target.name}.`, target.venue ? `Venue: ${target.venue}` : "", !waiting && target.confirmationNote ? `\n${target.confirmationNote}\n` : "", `Your registration number is ${reg?.number ?? ""}.`, `Your pass: ${base}/e/${target.slug}/pass/${registrationId}`, !waiting && target.startsAt ? `Add it to your calendar: ${base}/e/${target.slug}/calendar.ics` : "", `All your events and passes: ${base}/my`]
         .filter(Boolean)
         .join("\n"),
       dedupeKey: `registration-confirmation:${registrationId}:${waiting ? "waitlist" : "place"}`,
