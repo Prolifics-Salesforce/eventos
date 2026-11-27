@@ -2,7 +2,9 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { and, desc, eq, ilike, or } from "drizzle-orm";
 import { getDb } from "@/db/client";
-import { requirePrincipal } from "@/lib/session";
+import { can, requirePrincipal } from "@/lib/session";
+import { Denied } from "@/components/denied";
+
 import { contact, event, registration } from "@/db/schema";
 import { checkInAction } from "@/app/actions";
 
@@ -10,7 +12,7 @@ export default async function Desk({ params, searchParams }: { params: Promise<{
   const { id } = await params;
   const { q = "", notice, ok } = await searchParams;
   if (!/^[0-9a-f-]{36}$/i.test(id)) notFound();
-  await requirePrincipal();
+  if (!can(await requirePrincipal(), "checkin.write")) return <Denied title="Door desk" />;
   const db = await getDb();
   const [e] = await db.select().from(event).where(eq(event.id, id));
   if (!e) notFound();

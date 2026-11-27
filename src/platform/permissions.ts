@@ -4,6 +4,8 @@ export const PERMISSIONS = [
   "contact.read", "contact.write", "registration.write", "checkin.write",
   "lead.write", "message.send", "task.write", "note.write", "approval.decide",
   "agent.run", "admin.manage", "account.self", "consent.write",
+  /** Seeing things, where seeing is not for everyone: budgets and pipeline, and the ledger of who did what. */
+  "insights.read", "audit.read",
 ] as const;
 export type Permission = (typeof PERMISSIONS)[number];
 
@@ -14,7 +16,7 @@ const without = (...drop: Permission[]) => all.filter((p) => !drop.includes(p));
 export const DEFAULT_ROLES: Record<string, Permission[]> = {
   admin: all,
   organiser: without("admin.manage"),
-  sales: ["event.read", "contact.read", "contact.write", "lead.write", "note.write", "account.self"],
+  sales: ["event.read", "contact.read", "contact.write", "lead.write", "note.write", "account.self", "insights.read"],
   desk: ["event.read", "contact.read", "checkin.write", "account.self"],
   /** The public registration page acts as this service account. */
   public_site: ["registration.write", "consent.write"],

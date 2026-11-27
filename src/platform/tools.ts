@@ -59,7 +59,8 @@ function redacted(input: unknown, keys?: string[]): unknown {
 }
 
 export function defineTool<I extends z.ZodType, O>(tool: Tool<I, O>): Tool<I, O> {
-  if (registry.has(tool.name)) throw new Error(`Tool ${tool.name} is already defined`);
+  // In development a saved file is loaded again while the registry lives on, so the newer definition replaces the older.
+  if (registry.has(tool.name) && process.env.NODE_ENV !== "development") throw new Error(`Tool ${tool.name} is already defined`);
   registry.set(tool.name, tool as unknown as Tool);
   return tool;
 }

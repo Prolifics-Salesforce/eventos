@@ -4,12 +4,15 @@ import { contact, event, eventSession, formField, lead, registration, sessionSpe
 import type { Db } from "@/db/client";
 import { budgetItem } from "@/db/schema";
 import { eventInsights } from "@/lib/insights";
+import { DEFAULT_CURRENCY, DEFAULT_TIMEZONE, isCurrency, isTimeZone } from "@/lib/when";
 import { nextNumber } from "@/platform/numbers";
 import { defineTool, ToolError } from "@/platform/tools";
 
 const slugify = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 60);
 const when = z.iso.datetime({ offset: true }).optional().describe("ISO 8601 with offset, e.g. 2027-02-12T09:00:00+05:30");
 const toDate = (s?: string) => (s ? new Date(s) : null);
+const zone = z.string().max(64).refine(isTimeZone, "Use a time zone name such as Asia/Kolkata or Europe/London");
+const currencyCode = z.string().trim().toUpperCase().refine(isCurrency, "Use a three-letter currency code such as INR, USD or EUR");
 
 export const eventCreate = defineTool({
   name: "event.create",
@@ -20,7 +23,8 @@ export const eventCreate = defineTool({
     name: z.string().min(2).max(120),
     kind: z.enum(["booth", "field", "conference"]),
     startsAt: when, endsAt: when,
-    timezone: z.string().default("Asia/Kolkata"),
+    timezone: zone.default(DEFAULT_TIMEZONE),
+    currency: currencyCode.default(DEFAULT_CURRENCY),
     venue: z.string().max(200).optional(),
     brief: z.string().max(4000).optional().describe("The organiser's goal in their own words"),
   }),
@@ -29,7 +33,7 @@ export const eventCreate = defineTool({
     const [row] = await ctx.db
       .insert(event)
       .values({
-        number, name: input.name, kind: input.kind, timezone: input.timezone, venue: input.venue, brief: input.brief,
+        number, name: input.name, kind: input.kind, timezone: input.timezone, currency: input.currency, venue: input.venue, brief: input.brief,
         slug: `${slugify(input.name)}-${number.slice(-4)}`,
         startsAt: toDate(input.startsAt), endsAt: toDate(input.endsAt),
         createdBy: ctx.principal.id, updatedBy: ctx.principal.id,
@@ -203,7 +207,7 @@ export async function readAnswers(db: Db, eventId: string, purpose: "registratio
 
 export const eventUpdate = defineTool({
   name: "event.update",
-  description: "Change an event's details: venue, brief, capacity and targets. Leave a field out to keep it; send null to clear a number.",
+  description: "Change an event's details: venue, brief, capacity, targets, time zone and currency. Leave a field out to keep it; send null to clear a number. Changing the time zone changes how times are shown, not the moments themselves.",
   permission: "event.write",
   risk: "write",
   input: z.object({
@@ -212,9 +216,10 @@ export const eventUpdate = defineTool({
     capacity: z.number().int().positive().nullable().optional(),
     targetRegistrations: z.number().int().positive().nullable().optional(),
     targetLeads: z.number().int().positive().nullable().optional(),
+    timezone: zone.optional(), currency: currencyCode.optional(),
   }),
   async handler(ctx, { eventId, ...changes }) {
-    const [row] = await ctx.db.update(event).set({ ...changes, updatedBy: ctx.principal.id, updatedAt: new Date() }).where(eq(event.id, eventId)).returning({ id: event.id, capacity: event.capacity });
+    const [row] = await ctx.db.update(event).set({ ...changes, updatedBy: ctx.principal.id, updatedAt: new Date() }).where(eq(event.id, eventId)).returning({ id: event.id, capacity: event.capacity, timezone: event.timezone, currency: event.currency });
     if (!row) throw new ToolError("not_found", "No such event");
     await ctx.emit("event.updated", { eventId });
     return row;

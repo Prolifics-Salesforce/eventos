@@ -53,7 +53,8 @@ curl -X POST localhost:3000/api/tools/event.create \
 - **Messaging:** messages to a segment of guests, a confirmation on registration, a reminder the day before. Every email carries an unsubscribe link. Email goes out over SMTP once `SMTP_URL` is set.
 - **Insights:** per event and across the programme: the funnel from list to lead, budget planned and actual, cost per attendee and per lead, pipeline entered by sales, return, and guest score.
 - **Agents:** Builder, Lead Intelligence, Analyst and Outreach run through the same tools as people; the Concierge answers guests on the public page. Outward-facing actions wait in the Inbox, where you can reword a draft before approving it. The Agents screen sets what each may do alone. A playbook in Settings gives every agent your organisation's rules.
-- **Team:** people with roles, password change and reset. Activity is the full ledger.
+- **Team:** people with roles, password change and reset. Each role sees only its own screens. Activity is the full ledger.
+- **Privacy:** an administrator can download or erase everything held about one person (Settings).
 - **Other systems:** signed webhooks to a CRM or warehouse (Settings), and `/api/mcp` for other assistants.
 
 On a Mac, double-click `start.command` to install, set up and start everything.
@@ -85,6 +86,7 @@ from an outside font service. The console is dark by design; there is no light t
 | `ANTHROPIC_API_KEY` | Switches the agents on. Without it everything else still works |
 | `SMTP_URL`, `MAIL_FROM` | Sends real email. Without them, emails print in the server log |
 | `APP_URL` | The public address, used in links inside emails |
+| `APP_TIMEZONE`, `APP_CURRENCY` | What new events start with. Default `Asia/Kolkata` and `INR`; each event can be changed in its Setup tab |
 | `DATABASE_URL` | A real Postgres. Without it, an embedded database in `./.data` is used |
 | `ADMIN_EMAIL`, `ADMIN_PASSWORD` | The first administrator, created by `npm run db:seed` |
 

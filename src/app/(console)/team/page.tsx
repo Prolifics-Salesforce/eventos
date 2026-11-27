@@ -1,13 +1,15 @@
 import { asc, eq } from "drizzle-orm";
 import { getDb } from "@/db/client";
-import { requirePrincipal } from "@/lib/session";
+import { can, requirePrincipal } from "@/lib/session";
+import { Denied } from "@/components/denied";
+
 import { sysRole, sysUser, sysUserRole } from "@/db/schema";
 import { createUserAction, resetPasswordAction } from "@/app/actions";
 import { HUMAN_ROLES } from "@/platform/permissions";
 
 export default async function Team({ searchParams }: { searchParams: Promise<{ notice?: string; ok?: string }> }) {
   const { notice, ok } = await searchParams;
-  await requirePrincipal();
+  if (!can(await requirePrincipal(), "admin.manage")) return <Denied title="Team" />;
   const db = await getDb();
   const rows = await db.select({ u: sysUser, role: sysRole.name }).from(sysUser)
     .leftJoin(sysUserRole, eq(sysUserRole.userId, sysUser.id)).leftJoin(sysRole, eq(sysRole.id, sysUserRole.roleId)).orderBy(asc(sysUser.kind), asc(sysUser.name));

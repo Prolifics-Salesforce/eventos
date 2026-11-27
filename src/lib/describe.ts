@@ -42,13 +42,15 @@ const VERBS: Record<string, (i: Input) => string> = {
   "webhook.create": () => "connected another system",
   "webhook.remove": () => "disconnected another system",
   "playbook.set": () => "updated the playbook",
+  "contact.export": () => "exported a person's data",
+  "contact.erase": () => "erased a person's data",
   "policy.set": (i) => `set ${i.tool} to ${i.level === "auto" ? "automatic" : "ask first"} for an agent`,
 };
 
 const BASE: Record<string, string> = {
   created: "create", read: "read", looked: "look", set: "set", added: "add", removed: "remove", saved: "save", recorded: "record", registered: "register",
   checked: "check", exported: "export", captured: "capture", scored: "score", sent: "send", messaged: "message", marked: "mark", wrote: "write", asked: "ask",
-  reset: "reset", changed: "change", ran: "run", updated: "update", started: "start", put: "put", cancelled: "cancel", connected: "connect", disconnected: "disconnect",
+  reset: "reset", changed: "change", ran: "run", updated: "update", started: "start", erased: "erase", put: "put", cancelled: "cancel", connected: "connect", disconnected: "disconnect",
 };
 
 export function sentence(tool: string, input: unknown, status: string): string {

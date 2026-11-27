@@ -8,6 +8,7 @@ Generated from `src/app`.
 | `/account` | screen | Signed-in team | `src/app/(console)/account/page.tsx` |
 | `/activity` | screen | Signed-in team | `src/app/(console)/activity/page.tsx` |
 | `/agents` | screen | Signed-in team | `src/app/(console)/agents/page.tsx` |
+| `/api/health` | endpoint | Anyone (says only whether the database answers) | `src/app/api/health/route.ts` |
 | `/api/mcp` | endpoint | API key | `src/app/api/mcp/route.ts` |
 | `/api/tools` | endpoint | Anyone (the catalogue only, no data) | `src/app/api/tools/route.ts` |
 | `/api/tools/<name>` | endpoint | API key | `src/app/api/tools/[name]/route.ts` |
@@ -25,7 +26,10 @@ Generated from `src/app`.
 | `/runs` | screen | Signed-in team | `src/app/(console)/runs/page.tsx` |
 | `/runs/<id>` | screen | Signed-in team | `src/app/(console)/runs/[id]/page.tsx` |
 | `/settings` | screen | Signed-in team | `src/app/(console)/settings/page.tsx` |
+| `/settings/person` | endpoint | Administrators (downloads one person's data) | `src/app/(console)/settings/person/route.ts` |
 | `/signin` | screen | Anyone | `src/app/signin/page.tsx` |
 | `/team` | screen | Signed-in team | `src/app/(console)/team/page.tsx` |
 | `/today` | screen | Signed-in team | `src/app/(console)/today/page.tsx` |
 | `/u/<token>` | endpoint | Public | `src/app/u/[token]/route.ts` |
+
+"Signed-in team" means a signed-in person whose role includes the screen: see "Who sees which screen" in `docs/TOOLS.md`.

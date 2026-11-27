@@ -1,6 +1,7 @@
 import { eq, inArray } from "drizzle-orm";
 import type { Db } from "@/db/client";
 import { budgetItem, event, lead, registration, surveyResponse } from "@/db/schema";
+import { DEFAULT_CURRENCY } from "./when";
 
 type EventRow = typeof event.$inferSelect;
 type Reg = { status: string; checkedInAt: Date | null };
@@ -25,7 +26,7 @@ function summarise(e: EventRow | undefined, regs: Reg[], leads: LeadRow[], budge
   const promoters = surveys.filter((s) => s.score >= 9).length;
   const detractors = surveys.filter((s) => s.score <= 6).length;
   return {
-    currency: e?.currency ?? "INR",
+    currency: e?.currency ?? DEFAULT_CURRENCY,
     funnel: { onList: invited, awaitingReply: n("invited"), registered, attended, waitlisted: n("waitlisted"), declined: n("declined"), cancelled: n("cancelled") },
     showRate: registered ? Math.round((attended / registered) * 100) : null,
     leads: { total: leads.length, hot: leads.filter((l) => l.band === "hot").length, warm: leads.filter((l) => l.band === "warm").length },
@@ -66,5 +67,5 @@ export async function insightsFor(db: Db, events: EventRow[]): Promise<Map<strin
   return new Map(events.map((e) => [e.id, summarise(e, of(regs, e.id), of(leads, e.id), of(budget, e.id), of(surveys, e.id))]));
 }
 
-export const money = (amount: number | null | undefined, currency = "INR") =>
-  amount == null ? "–" : new Intl.NumberFormat("en-IN", { style: "currency", currency, maximumFractionDigits: 0 }).format(amount);
+export const money = (amount: number | null | undefined, currency = DEFAULT_CURRENCY) =>
+  amount == null ? "–" : new Intl.NumberFormat(currency === "INR" ? "en-IN" : "en", { style: "currency", currency, maximumFractionDigits: 0 }).format(amount);

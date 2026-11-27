@@ -7,17 +7,21 @@ import { signOutAction } from "@/app/actions";
 import { agentsEnabled } from "@/agents/model";
 import { CommandBar, type Command } from "@/components/command-bar";
 import { Icon } from "@/components/icons";
-import { requirePrincipal } from "@/lib/session";
+import { can, requirePrincipal } from "@/lib/session";
+import type { Permission } from "@/platform/permissions";
 
 export const dynamic = "force-dynamic";
 
-const NAV = [
-  { href: "/today", label: "Today", icon: "today" }, { href: "/events", label: "Events", icon: "events" }, { href: "/inbox", label: "Inbox", icon: "inbox" },
-  { href: "/insights", label: "Insights", icon: "insights" }, { href: "/runs", label: "Agent runs", icon: "runs" }, { href: "/agents", label: "Agents", icon: "agents" }, { href: "/team", label: "Team", icon: "team" }, { href: "/activity", label: "Activity", icon: "activity" }, { href: "/settings", label: "Settings", icon: "settings" },
+/** Each screen and the permission a person needs to be shown it. The screen itself checks again. */
+const SCREENS: { href: string; label: string; icon: string; needs: Permission }[] = [
+  { href: "/today", label: "Today", icon: "today", needs: "event.read" }, { href: "/events", label: "Events", icon: "events", needs: "event.read" }, { href: "/inbox", label: "Inbox", icon: "inbox", needs: "approval.decide" },
+  { href: "/insights", label: "Insights", icon: "insights", needs: "insights.read" }, { href: "/runs", label: "Agent runs", icon: "runs", needs: "agent.run" }, { href: "/agents", label: "Agents", icon: "agents", needs: "admin.manage" },
+  { href: "/team", label: "Team", icon: "team", needs: "admin.manage" }, { href: "/activity", label: "Activity", icon: "activity", needs: "audit.read" }, { href: "/settings", label: "Settings", icon: "settings", needs: "admin.manage" },
 ];
 
 export default async function ConsoleLayout({ children }: { children: ReactNode }) {
   const principal = await requirePrincipal();
+  const NAV = SCREENS.filter((s) => can(principal, s.needs));
   const db = await getDb();
   const [[waiting], [working], events] = await Promise.all([
     db.select({ n: count() }).from(task).where(and(eq(task.taskType, "approval"), eq(task.state, "awaiting_approval"))),
@@ -27,8 +31,8 @@ export default async function ConsoleLayout({ children }: { children: ReactNode 
   const commands: Command[] = [
     ...events.flatMap((e) => [
       { label: e.name, href: `/events/${e.id}`, hint: `Event · ${e.status}` },
-      { label: `${e.name}: guests`, href: `/events/${e.id}?tab=guests`, hint: "Guest list" },
-      { label: `${e.name}: door desk`, href: `/events/${e.id}/desk`, hint: "Check-in" },
+      ...(can(principal, "contact.read") ? [{ label: `${e.name}: guests`, href: `/events/${e.id}?tab=guests`, hint: "Guest list" }] : []),
+      ...(can(principal, "checkin.write") ? [{ label: `${e.name}: door desk`, href: `/events/${e.id}/desk`, hint: "Check-in" }] : []),
     ]),
     ...NAV.map((n) => ({ label: n.label, href: n.href, hint: "Screen" })),
     { label: "My account", href: "/account", hint: "Screen" },

@@ -1,13 +1,16 @@
 import { desc, eq } from "drizzle-orm";
 import { getDb } from "@/db/client";
-import { requirePrincipal } from "@/lib/session";
+import { can, requirePrincipal } from "@/lib/session";
+import { Denied } from "@/components/denied";
+
 import { sysAudit, sysOutbox, sysUser } from "@/db/schema";
 import { initials, sentence } from "@/lib/describe";
+import { DEFAULT_TIMEZONE } from "@/lib/when";
 
-const fmt = (d: Date) => new Intl.DateTimeFormat("en-IN", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit", timeZone: "Asia/Kolkata" }).format(d);
+const fmt = (d: Date) => new Intl.DateTimeFormat("en-IN", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit", timeZone: DEFAULT_TIMEZONE }).format(d);
 
 export default async function Activity() {
-  await requirePrincipal();
+  if (!can(await requirePrincipal(), "audit.read")) return <Denied title="Activity" />;
   const db = await getDb();
   const [calls, messages] = await Promise.all([
     db.select({ a: sysAudit, actor: sysUser.name }).from(sysAudit).leftJoin(sysUser, eq(sysUser.id, sysAudit.actorId)).orderBy(desc(sysAudit.id)).limit(120),

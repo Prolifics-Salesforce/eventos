@@ -23,3 +23,15 @@ export async function register() {
     await runNextAgentRun(db);
   });
 }
+
+/**
+ * Every error a page, action or route lets through, as one line of JSON in the
+ * server log, so a log service can count and alert on them.
+ */
+export function onRequestError(error: unknown, request: { path: string; method: string }, context: { routePath: string; routeType: string }) {
+  const e = error as { message?: string; digest?: string; stack?: string };
+  console.error(JSON.stringify({
+    level: "error", at: new Date().toISOString(), method: request.method, path: request.path.split("?")[0],
+    route: context.routePath, kind: context.routeType, message: e?.message ?? String(error), digest: e?.digest, stack: e?.stack?.split("\n").slice(0, 6).join(" | "),
+  }));
+}

@@ -3,6 +3,7 @@ import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { getDb } from "@/db/client";
 import { principalForSession } from "@/platform/auth";
+import type { Permission } from "@/platform/permissions";
 import type { Principal } from "@/platform/principal";
 
 export const SESSION_COOKIE = "eventos_session";
@@ -23,3 +24,6 @@ export async function requirePrincipal(): Promise<Principal> {
   if (!principal) redirect("/signin");
   return principal;
 }
+
+/** Whether this person's roles include a permission. Screens ask before showing; tools ask again before changing. */
+export const can = (principal: Principal, permission: Permission): boolean => principal.permissions.has(permission);

@@ -14,7 +14,7 @@ import { randomUUID } from "node:crypto";
 import { decideApproval, invoke, type InvokeResult } from "@/platform/tools";
 import { deliverSoon } from "@/lib/deliver";
 import { requirePrincipal, SESSION_COOKIE } from "@/lib/session";
-import { zonedToIso } from "@/lib/when";
+import { DEFAULT_TIMEZONE, zonedToIso } from "@/lib/when";
 import "@/tools";
 
 const text = (form: FormData, key: string) => {
@@ -83,7 +83,7 @@ export async function signOutAction() {
 
 export async function createEventAction(form: FormData) {
   const principal = await requirePrincipal();
-  const timezone = text(form, "timezone") ?? "Asia/Kolkata";
+  const timezone = text(form, "timezone") ?? DEFAULT_TIMEZONE;
   const startsAt = text(form, "startsAt");
   const result = await invoke<{ id: string }>(await getDb(), principal, "event.create", {
     name: text(form, "name"), kind: text(form, "kind"), venue: text(form, "venue"), brief: text(form, "brief"),
@@ -123,7 +123,7 @@ export async function checkInAction(form: FormData) {
 export async function addSessionAction(form: FormData) {
   const principal = await requirePrincipal();
   const eventId = text(form, "eventId")!;
-  const timezone = text(form, "timezone") ?? "Asia/Kolkata";
+  const timezone = text(form, "timezone") ?? DEFAULT_TIMEZONE;
   const startsAt = text(form, "startsAt");
   done(returnTo(form, `/events/${eventId}`), await invoke(await getDb(), principal, "session.create", {
     eventId, title: text(form, "title"), track: text(form, "track"), room: text(form, "room"),
@@ -196,6 +196,8 @@ export async function decideAction(form: FormData) {
   done(returnTo(form, "/inbox"), await decideApproval(await getDb(), principal, text(form, "taskId")!, decision, edits));
 }
 
+const REGISTRATIONS_PER_HOUR = 10;
+
 /** The public registration form. Runs as the Public site service account, never as a person. */
 export async function registerGuestAction(form: FormData) {
   const slug = text(form, "eventSlug")!;
@@ -203,6 +205,9 @@ export async function registerGuestAction(form: FormData) {
   // A filled-in hidden field means a bot; answer as if it worked.
   if (text(form, "website")) redirect(`${path}?done=1`);
   const db = await getDb();
+  // One visitor address may register 10 times an hour, so the form cannot be used to flood other people's inboxes.
+  const address = (await headers()).get("x-forwarded-for")?.split(",")[0].trim() ?? "local";
+  if ((await limitHit(db, `register:${address.slice(0, 80)}`, 3600_000)) > REGISTRATIONS_PER_HOUR) redirect(`${path}?notice=${encodeURIComponent("Too many registrations from this connection. Please try again in an hour.")}`);
   const result = await invoke<{ status: string }>(db, await servicePrincipal(db, "Public site"), "registration.register_guest", {
     eventSlug: slug, email: text(form, "email"), firstName: text(form, "firstName"), lastName: text(form, "lastName"),
     phone: text(form, "phone"), whatsappOptIn: form.get("whatsappOptIn") === "on", answers: answersFrom(form),
@@ -282,11 +287,20 @@ export async function updateEventAction(form: FormData) {
   }), "Saved");
 }
 
+export async function updateLocaleAction(form: FormData) {
+  const principal = await requirePrincipal();
+  const eventId = text(form, "eventId")!;
+  done(returnTo(form, `/events/${eventId}`), await invoke(await getDb(), principal, "event.update", { eventId, timezone: text(form, "timezone"), currency: text(form, "currency")?.toUpperCase() }), "Saved");
+}
+
 export async function cloneEventAction(form: FormData) {
   const principal = await requirePrincipal();
   const eventId = text(form, "eventId")!;
   const startsAt = text(form, "startsAt");
-  const result = await invoke<{ id: string }>(await getDb(), principal, "event.clone", { eventId, name: text(form, "name"), startsAt: startsAt ? zonedToIso(startsAt, "Asia/Kolkata") : undefined });
+  const db = await getDb();
+  // The date typed is wall-clock time where the event happens, which is the zone the copy inherits.
+  const [source] = await db.select({ timezone: event.timezone }).from(event).where(eq(event.id, eventId));
+  const result = await invoke<{ id: string }>(db, principal, "event.clone", { eventId, name: text(form, "name"), startsAt: startsAt ? zonedToIso(startsAt, source?.timezone ?? DEFAULT_TIMEZONE) : undefined });
   if (result.status === "ok") redirect(`/events/${result.output.id}?ok=${encodeURIComponent("Draft created from the other event")}`);
   done(returnTo(form, `/events/${eventId}`), result);
 }
@@ -395,4 +409,11 @@ export async function surveyAction(form: FormData) {
   const path = await guestPath(db, registrationId);
   const result = await invoke(db, await servicePrincipal(db, "Public site"), "survey.submit", { registrationId, score: Number(text(form, "score")), comment: text(form, "comment") });
   redirect(result.status === "ok" ? `${path}?thanks=1` : `${path}?notice=${encodeURIComponent(explain(result))}`);
+}
+
+/** Remove a person and everything held about them. The tick box on the form is the confirmation. */
+export async function erasePersonAction(form: FormData) {
+  const principal = await requirePrincipal();
+  const result = await invoke<{ registrations: number; leads: number; messages: number }>(await getDb(), principal, "contact.erase", { email: text(form, "email"), confirm: form.get("confirm") === "on" });
+  done("/settings", result, result.status === "ok" ? `Removed, with ${result.output.registrations} registration(s), ${result.output.leads} lead(s) and ${result.output.messages} message(s).` : undefined);
 }

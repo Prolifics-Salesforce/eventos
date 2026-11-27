@@ -2,7 +2,7 @@ import { cookies } from "next/headers";
 import { desc } from "drizzle-orm";
 import { getDb } from "@/db/client";
 import { webhook } from "@/db/schema";
-import { playbookAction, webhookCreateAction, webhookRemoveAction } from "@/app/actions";
+import { erasePersonAction, playbookAction, webhookCreateAction, webhookRemoveAction } from "@/app/actions";
 import { requirePrincipal } from "@/lib/session";
 import { getProperty } from "@/platform/properties";
 
@@ -45,6 +45,19 @@ export default async function Settings({ searchParams }: { searchParams: Promise
           )}
         </section>
       </div>
+      <section className="section" style={{ maxWidth: 560 }}>
+        <h2>A person's data <small>privacy requests</small></h2>
+        <p className="small muted" style={{ marginTop: 0 }}>When someone asks what you hold about them, or asks to be removed. Find them by the email they registered with.</p>
+        <form action="/settings/person" method="post" className="row" style={{ marginBottom: 18 }}>
+          <label style={{ flex: 1 }}>Email<input name="email" type="email" required autoComplete="off" /></label>
+          <button type="submit" className="ghost">Download their data</button>
+        </form>
+        <form action={erasePersonAction} className="stack">
+          <label>Email<input name="email" type="email" required autoComplete="off" /></label>
+          <label className="check"><input type="checkbox" name="confirm" required /> Remove this person, their registrations, leads, survey answers, messages and notes. This cannot be undone.</label>
+          <div><button type="submit" className="ghost">Remove this person</button></div>
+        </form>
+      </section>
     </>
   );
 }

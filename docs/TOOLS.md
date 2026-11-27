@@ -3,7 +3,7 @@
 Generated from the code. Every change to data goes through one of these tools, whoever makes it: a person on a screen, an API client, an agent or an outside assistant over MCP.
 
 - **Permission**: the one permission a caller's role must include.
-- **Reach**: `read` and `write` stay inside the instance. `external` is seen by people outside it; an agent calling one is held for a person's approval unless a policy says otherwise.
+- **Reach**: `read` and `write` stay inside the instance. `destructive` cannot be undone. `external` is seen by people outside it; an agent calling one is held for a person's approval unless a policy says otherwise.
 
 | Tool | Permission | Reach | What it does |
 | --- | --- | --- | --- |
@@ -15,7 +15,7 @@ Generated from the code. Every change to data goes through one of these tools, w
 | `event.public_info` | event.read | read | What the public may know about an event: name, time, venue and, for conferences, the agenda. Nothing internal. |
 | `form.add_field` | event.write | write | Add a question to an event's registration form or to its lead capture screen. |
 | `form.remove_field` | event.write | write | Remove a question from a form. Answers already given are kept on the records. |
-| `event.update` | event.write | write | Change an event's details: venue, brief, capacity and targets. Leave a field out to keep it; send null to clear a number. |
+| `event.update` | event.write | write | Change an event's details: venue, brief, capacity, targets, time zone and currency. Leave a field out to keep it; send null to clear a number. Changing the time zone changes how times are shown, not the moments themselves. |
 | `event.clone` | event.write | write | Start a new draft from an existing event: same type, venue, brief, capacity, targets, questions, planned budget and session outline. Guests, leads and messages are not copied. |
 | `budget.set_item` | event.write | write | Add a budget line to an event, or update one: what it is, the planned amount and, once known, the actual amount. |
 | `budget.remove_item` | event.write | write | Remove a budget line from an event. |
@@ -46,14 +46,16 @@ Generated from the code. Every change to data goes through one of these tools, w
 | `webhook.create` | admin.manage | write | Tell another system when things happen here. Give its address and which events it wants (for example registration.created, checkin.confirmed, lead.captured), or * for all. |
 | `webhook.remove` | admin.manage | write | Stop telling another system about events here. |
 | `playbook.set` | admin.manage | write | Set the organisation's playbook: brand voice, naming rules, compliance and approval policies. Every agent reads it before it works. |
+| `contact.export` | admin.manage | read | Everything held about one person, found by email: their details, registrations, leads, survey answers, messages sent to them and notes about them. |
+| `contact.erase` | admin.manage | destructive | Remove one person, found by email, and everything held about them: registrations, leads, survey answers, messages, notes, and their details in the ledger. This cannot be undone. |
 
 ## Roles
 
 | Role | Permissions |
 | --- | --- |
-| admin | all 17 |
-| organiser | event.read, event.write, event.publish, session.write, contact.read, contact.write, registration.write, checkin.write, lead.write, message.send, task.write, note.write, approval.decide, agent.run, account.self, consent.write |
-| sales | event.read, contact.read, contact.write, lead.write, note.write, account.self |
+| admin | all 19 |
+| organiser | event.read, event.write, event.publish, session.write, contact.read, contact.write, registration.write, checkin.write, lead.write, message.send, task.write, note.write, approval.decide, agent.run, account.self, consent.write, insights.read, audit.read |
+| sales | event.read, contact.read, contact.write, lead.write, note.write, account.self, insights.read |
 | desk | event.read, contact.read, checkin.write, account.self |
 | public_site | registration.write, consent.write |
 | system | message.send, task.write, agent.run |
@@ -62,3 +64,21 @@ Generated from the code. Every change to data goes through one of these tools, w
 | agent_analyst | event.read, contact.read, note.write |
 | agent_outreach | event.read, message.send, note.write |
 | agent_concierge | event.read, task.write |
+
+## Who sees which screen
+
+Tools check a permission before changing anything. Screens check one before showing anything.
+
+| Screen | Permission |
+| --- | --- |
+| Today, Events, an event's Overview and Agenda | event.read |
+| An event's Guests and Leads tabs, Badges | contact.read |
+| An event's Messages tab | message.send |
+| An event's Insights tab, Insights | insights.read |
+| An event's Setup tab | event.write |
+| Door desk | checkin.write |
+| Lead capture | lead.write |
+| Inbox, and "Needs you" on Today | approval.decide |
+| Agent runs | agent.run |
+| Activity, and "Done for you" on Today | audit.read |
+| Agents, Team, Settings | admin.manage |

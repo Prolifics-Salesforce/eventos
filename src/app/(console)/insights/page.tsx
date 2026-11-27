@@ -3,10 +3,12 @@ import { asc, ne } from "drizzle-orm";
 import { getDb } from "@/db/client";
 import { event } from "@/db/schema";
 import { insightsFor, money } from "@/lib/insights";
-import { requirePrincipal } from "@/lib/session";
+import { can, requirePrincipal } from "@/lib/session";
+import { DEFAULT_CURRENCY } from "@/lib/when";
+import { Denied } from "@/components/denied";
 
 export default async function Portfolio() {
-  await requirePrincipal();
+  if (!can(await requirePrincipal(), "insights.read")) return <Denied title="Insights" />;
   const db = await getDb();
   const events = await db.select().from(event).where(ne(event.status, "archived")).orderBy(asc(event.startsAt));
   const figures = await insightsFor(db, events);
@@ -15,7 +17,7 @@ export default async function Portfolio() {
   const cost = sum((r) => r.i.money.actual ?? r.i.money.planned);
   const pipeline = sum((r) => r.i.money.pipeline);
   const registered = sum((r) => r.i.funnel.registered), attended = sum((r) => r.i.funnel.attended), leads = sum((r) => r.i.leads.total);
-  const currency = rows[0]?.i.currency ?? "INR";
+  const currency = rows[0]?.i.currency ?? DEFAULT_CURRENCY;
   return (
     <>
       <div className="head"><div><h1>Insights</h1><p className="muted">What your events cost and what they produced, across the whole programme.</p></div></div>

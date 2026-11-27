@@ -1,6 +1,8 @@
 import { and, eq } from "drizzle-orm";
 import { getDb } from "@/db/client";
-import { requirePrincipal } from "@/lib/session";
+import { can, requirePrincipal } from "@/lib/session";
+import { Denied } from "@/components/denied";
+
 import { sysPolicy, sysUser } from "@/db/schema";
 import { setPolicyAction } from "@/app/actions";
 import { AGENTS, CONCIERGE, type AgentName } from "@/agents/definitions";
@@ -23,7 +25,7 @@ const PLAIN: Record<string, string> = {
 
 export default async function Agents({ searchParams }: { searchParams: Promise<{ notice?: string; ok?: string }> }) {
   const { notice, ok } = await searchParams;
-  await requirePrincipal();
+  if (!can(await requirePrincipal(), "admin.manage")) return <Denied title="Agents" />;
   const db = await getDb();
   const agents = await db.select().from(sysUser).where(and(eq(sysUser.kind, "agent"), eq(sysUser.active, true)));
   const policies = await db.select().from(sysPolicy);

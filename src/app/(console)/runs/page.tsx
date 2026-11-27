@@ -1,14 +1,16 @@
 import Link from "next/link";
 import { desc, eq } from "drizzle-orm";
 import { getDb } from "@/db/client";
-import { requirePrincipal } from "@/lib/session";
+import { can, requirePrincipal } from "@/lib/session";
+import { Denied } from "@/components/denied";
+
 import { event, task } from "@/db/schema";
 import { agentsEnabled } from "@/agents/model";
 import { ago, initials } from "@/lib/describe";
 
 export default async function Runs({ searchParams }: { searchParams: Promise<{ notice?: string }> }) {
   const { notice } = await searchParams;
-  await requirePrincipal();
+  if (!can(await requirePrincipal(), "agent.run")) return <Denied title="Agent runs" />;
   const db = await getDb();
   const rows = await db.select({ t: task, eventName: event.name }).from(task).leftJoin(event, eq(event.id, task.eventId))
     .where(eq(task.taskType, "agent_run")).orderBy(desc(task.createdAt)).limit(100);

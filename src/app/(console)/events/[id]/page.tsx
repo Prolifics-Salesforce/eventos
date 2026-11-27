@@ -5,12 +5,14 @@ import { getDb } from "@/db/client";
 import { budgetItem, contact, event, eventSession, formField, lead, surveyResponse, registration, sessionSpeaker, sysJournal, sysOutbox, sysUser, task, type EventStatus } from "@/db/schema";
 import {
   addFieldAction, addGuestAction, addSessionAction, addSpeakerAction, addTaskAction, budgetItemAction, campaignAction, cancelRegistrationAction, captureLeadAction,
-  checkInAction, cloneEventAction, importGuestsAction, leadValueAction, removeBudgetAction, removeFieldAction, runAgentAction, setStatusAction, taskStateAction, updateEventAction,
+  checkInAction, cloneEventAction, importGuestsAction, leadValueAction, removeBudgetAction, removeFieldAction, runAgentAction, setStatusAction, taskStateAction, updateEventAction, updateLocaleAction,
 } from "@/app/actions";
 import { ago, countdown } from "@/lib/describe";
 import { eventInsights, money } from "@/lib/insights";
-import { requirePrincipal } from "@/lib/session";
-import { formatWhen } from "@/lib/when";
+import { can, requirePrincipal } from "@/lib/session";
+import { formatWhen, timeZones } from "@/lib/when";
+import { Denied } from "@/components/denied";
+
 
 const NEXT_STATUS: Record<EventStatus, { status: EventStatus; label: string }[]> = {
   draft: [{ status: "live", label: "Go live" }],
@@ -29,7 +31,8 @@ export default async function EventPage({ params, searchParams }: { params: Prom
   const { id } = await params;
   const { notice, ok, tab: asked } = await searchParams;
   if (!/^[0-9a-f-]{36}$/i.test(id)) notFound();
-  await requirePrincipal();
+  const me = await requirePrincipal();
+  if (!can(me, "event.read")) return <Denied title="Events" />;
   const db = await getDb();
   const [e] = await db.select().from(event).where(eq(event.id, id));
   if (!e) notFound();
@@ -53,10 +56,15 @@ export default async function EventPage({ params, searchParams }: { params: Prom
     wantsInsights ? db.select().from(surveyResponse).where(eq(surveyResponse.eventId, id)).orderBy(desc(surveyResponse.createdAt)).limit(6) : [],
   ]);
 
-  const tabs = [
-    { key: "overview", label: "Overview" }, { key: "guests", label: "Guests", n: guests.length },
+  // A tab a person's role does not include is not offered, and asking for it by address shows the overview instead.
+  const tabs: { key: string; label: string; n?: number }[] = [
+    { key: "overview", label: "Overview" },
+    ...(can(me, "contact.read") ? [{ key: "guests", label: "Guests", n: guests.length }] : []),
     ...(e.kind === "conference" ? [{ key: "agenda", label: "Agenda", n: sessions.length }] : []),
-    { key: "leads", label: "Leads", n: leads.length }, { key: "messages", label: "Messages" }, { key: "insights", label: "Insights" }, { key: "setup", label: "Setup" },
+    ...(can(me, "contact.read") ? [{ key: "leads", label: "Leads", n: leads.length }] : []),
+    ...(can(me, "message.send") ? [{ key: "messages", label: "Messages" }] : []),
+    ...(can(me, "insights.read") ? [{ key: "insights", label: "Insights" }] : []),
+    ...(can(me, "event.write") ? [{ key: "setup", label: "Setup" }] : []),
   ];
   const tab = tabs.some((t) => t.key === asked) ? asked! : "overview";
   const here = `/events/${e.id}${tab === "overview" ? "" : `?tab=${tab}`}`;
@@ -80,9 +88,9 @@ export default async function EventPage({ params, searchParams }: { params: Prom
           </p>
         </div>
         <div className="actions">
-          <Link className="button" href={`/events/${e.id}/desk`}>Door desk</Link>
-          <Link className="button" href={`/events/${e.id}/capture`}>Capture a lead</Link>
-          {NEXT_STATUS[e.status].slice(0, 1).map((n) => (
+          {can(me, "checkin.write") && <Link className="button" href={`/events/${e.id}/desk`}>Door desk</Link>}
+          {can(me, "lead.write") && <Link className="button" href={`/events/${e.id}/capture`}>Capture a lead</Link>}
+          {can(me, "event.publish") && NEXT_STATUS[e.status].slice(0, 1).map((n) => (
             <form key={n.status} action={setStatusAction}>{hidden}<input type="hidden" name="status" value={n.status} /><button type="submit">{n.label}</button></form>
           ))}
         </div>
@@ -101,12 +109,12 @@ export default async function EventPage({ params, searchParams }: { params: Prom
             <div className="stat"><b>{attended} <em>of {ins.funnel.registered}</em></b><span>Checked in</span><div className="meter"><i style={{ width: `${ins.funnel.registered ? (attended / ins.funnel.registered) * 100 : 0}%` }} /></div></div>
             <div className="stat"><b>{leads.length}</b><span>Leads {versus(leads.length, e.targetLeads)}</span></div>
             <div className="stat"><b>{hot}</b><span>Hot leads</span></div>
-            <div className="stat"><b>{ins.money.pipeline ? money(ins.money.pipeline, ins.currency) : "–"}</b><span>Pipeline</span></div>
+            {can(me, "insights.read") && <div className="stat"><b>{ins.money.pipeline ? money(ins.money.pipeline, ins.currency) : "–"}</b><span>Pipeline</span></div>}
             <div className="stat"><b>{open.length}</b><span>Open to-dos</span></div>
           </div>
           <div className="cols">
             <section className="section">
-              <h2>Ask an agent</h2>
+              {can(me, "agent.run") && <><h2>Ask an agent</h2>
               <form action={runAgentAction} className="stack">
                 {hidden}
                 <textarea name="goal" required minLength={5} placeholder={PROMPTS.Builder} />
@@ -117,8 +125,8 @@ export default async function EventPage({ params, searchParams }: { params: Prom
                   <button type="submit" className="mint">Start</button>
                 </div>
                 <p className="small faint" style={{ margin: 0 }}>Agents work in the background and record every step. Anything they want to send outside the team waits for your approval.</p>
-              </form>
-              {e.brief && <><h2 style={{ marginTop: 30 }}>Brief</h2><p className="muted" style={{ margin: 0 }}>{e.brief}</p></>}
+              </form></>}
+              {e.brief && <><h2 style={{ marginTop: can(me, "agent.run") ? 30 : 0 }}>Brief</h2><p className="muted" style={{ margin: 0 }}>{e.brief}</p></>}
               <h2 style={{ marginTop: 30 }}>Notes</h2>
               {notes.length === 0 ? <div className="empty">No notes yet. Agents leave their plans and briefs here.</div> : notes.map(({ n, author, kind }) => (
                 <div className={`note ${kind === "agent" ? "agent" : ""}`} key={n.id}><div className="small"><span className={`who ${kind}`}>{author ?? "Someone"}</span> <span className="faint">{ago(n.at)}</span></div>{n.body}</div>
@@ -251,7 +259,7 @@ export default async function EventPage({ params, searchParams }: { params: Prom
 
       {tab === "leads" && (
         <>
-          <div className="toolbar">
+          {can(me, "lead.write") && <div className="toolbar">
             <details className="add">
               <summary>+ Capture a lead</summary>
               <form action={captureLeadAction} className="row">
@@ -263,7 +271,7 @@ export default async function EventPage({ params, searchParams }: { params: Prom
               </form>
             </details>
             <Link className="button" href={`/events/${e.id}/capture`}>Open the phone screen</Link>
-          </div>
+          </div>}
           {leads.length === 0 ? <div className="empty">No leads yet. On the stand, use Capture a lead on a phone.</div> : (
             <div className="rows">{leads.map(({ l, c }) => (
               <div className="rowitem" key={l.id}>
@@ -271,9 +279,9 @@ export default async function EventPage({ params, searchParams }: { params: Prom
                 <div><div className="title">{c.firstName} {c.lastName}{c.title ? <span className="muted" style={{ fontWeight: 400 }}>, {c.title}</span> : null}</div><div className="small muted">{l.notes}</div></div>
                 <div className="actions">
                   {l.band && <span className={`pill ${l.band}`}>{l.band}</span>}
-                  <form action={leadValueAction} className="actions">{hidden}<input type="hidden" name="leadId" value={l.id} />
+                  {can(me, "lead.write") && <form action={leadValueAction} className="actions">{hidden}<input type="hidden" name="leadId" value={l.id} />
                     <input name="pipelineValue" type="number" min={0} step={1000} defaultValue={l.pipelineValue ?? ""} placeholder={`Worth, ${e.currency}`} aria-label="What this lead could be worth" style={{ width: 140 }} />
-                    <button className="ghost" type="submit">Save</button></form>
+                    <button className="ghost" type="submit">Save</button></form>}
                 </div>
               </div>
             ))}</div>
@@ -395,6 +403,14 @@ export default async function EventPage({ params, searchParams }: { params: Prom
               <button type="submit" className="ghost">Save</button>
             </form>
             <p className="small faint" style={{ marginTop: -14 }}>When every place is taken, new guests join a waitlist and are moved up automatically when someone cancels.</p>
+            <h2>Time zone and currency</h2>
+            <form action={updateLocaleAction} className="row" style={{ marginBottom: 26 }}>
+              {hidden}
+              <label>Time zone<select name="timezone" defaultValue={e.timezone}>{timeZones(e.timezone).map((z) => <option key={z}>{z}</option>)}</select></label>
+              <label>Currency<input name="currency" defaultValue={e.currency} required minLength={3} maxLength={3} pattern="[A-Za-z]{3}" style={{ width: 90, textTransform: "uppercase" }} /></label>
+              <button type="submit" className="ghost">Save</button>
+            </form>
+            <p className="small faint" style={{ marginTop: -14 }}>Times are shown in this zone on the public page, passes and emails. Changing it does not move the event. Budgets and pipeline are shown in this currency.</p>
             <h2>Run it again</h2>
             <form action={cloneEventAction} className="row" style={{ marginBottom: 26 }}>
               {hidden}

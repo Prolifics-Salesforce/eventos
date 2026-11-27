@@ -4,3 +4,4 @@ import "./people";
 import "./messages";
 import "./tasks";
 import "./admin";
+import "./privacy";

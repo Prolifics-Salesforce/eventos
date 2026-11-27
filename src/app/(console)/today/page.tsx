@@ -4,20 +4,26 @@ import { getDb } from "@/db/client";
 import { event, registration, sysAudit, sysUser, task } from "@/db/schema";
 import { Intent } from "@/components/intent";
 import { ago, countdown, initials, sentence } from "@/lib/describe";
-import { requirePrincipal } from "@/lib/session";
+import { can, requirePrincipal } from "@/lib/session";
+import { DEFAULT_TIMEZONE } from "@/lib/when";
+import { Denied } from "@/components/denied";
+
 
 const DAY = 86_400_000;
 
 export default async function Today() {
   const me = await requirePrincipal();
+  if (!can(me, "event.read")) return <Denied title="Today" />;
+  const decides = can(me, "approval.decide"), seesLedger = can(me, "audit.read");
   const db = await getDb();
   const [events, approvals, ledger, runs, [{ n: waiting }]] = await Promise.all([
     db.select({ e: event, guests: count(registration.id) }).from(event).leftJoin(registration, eq(registration.eventId, event.id))
       .where(ne(event.status, "archived")).groupBy(event.id).orderBy(asc(event.startsAt)),
+    // What a person's role does not let them see is not read at all.
     db.select({ t: task, by: sysUser.name }).from(task).leftJoin(sysUser, eq(sysUser.id, task.createdBy))
-      .where(and(eq(task.taskType, "approval"), eq(task.state, "awaiting_approval"))).orderBy(desc(task.createdAt)).limit(3),
+      .where(and(eq(task.taskType, "approval"), eq(task.state, "awaiting_approval"))).orderBy(desc(task.createdAt)).limit(decides ? 3 : 0),
     db.select({ a: sysAudit, name: sysUser.name }).from(sysAudit).leftJoin(sysUser, eq(sysUser.id, sysAudit.actorId))
-      .where(and(inArray(sysAudit.status, ["ok", "held"]), inArray(sysAudit.actorKind, ["agent", "service"]))).orderBy(desc(sysAudit.id)).limit(60),
+      .where(and(inArray(sysAudit.status, ["ok", "held"]), inArray(sysAudit.actorKind, ["agent", "service"]))).orderBy(desc(sysAudit.id)).limit(seesLedger ? 60 : 0),
     db.select().from(task).where(and(eq(task.taskType, "agent_run"), inArray(task.state, ["open", "in_progress"]))),
     db.select({ n: count() }).from(task).where(and(eq(task.taskType, "approval"), eq(task.state, "awaiting_approval"))),
   ]);
@@ -47,13 +53,13 @@ export default async function Today() {
     <>
       <div className="head">
         <div>
-          <h1>{new Intl.DateTimeFormat("en-IN", { weekday: "long", day: "numeric", month: "long", timeZone: "Asia/Kolkata" }).format(now)}</h1>
+          <h1>{new Intl.DateTimeFormat("en-IN", { weekday: "long", day: "numeric", month: "long", timeZone: DEFAULT_TIMEZONE }).format(now)}</h1>
           <p className="muted">
             {me.name.split(" ")[0]}, {live === 0 ? "nothing is live right now" : `${live} ${live === 1 ? "event is" : "events are"} live`}
-            {waiting > 0 ? ` and ${waiting} ${waiting === 1 ? "action is" : "actions are"} waiting for your decision.` : "."}
+            {decides && waiting > 0 ? ` and ${waiting} ${waiting === 1 ? "action is" : "actions are"} waiting for your decision.` : "."}
           </p>
         </div>
-        <Link className="button" href="/events">New event</Link>
+        {can(me, "event.write") && <Link className="button" href="/events">New event</Link>}
       </div>
 
       {dated.length > 0 && (
@@ -69,15 +75,15 @@ export default async function Today() {
       )}
 
       <div className="cols">
-        <section className="section">
+        {decides && <section className="section">
           <h2>Needs you <small>{waiting === 0 ? "nothing waiting" : `${waiting} waiting`}</small></h2>
           {approvals.length === 0 ? (
             <div className="notice quiet">You are up to date. When an agent wants to send something outside the team, it appears here first.</div>
           ) : approvals.map(({ t, by }) => <Intent key={t.id} db={db} approval={t} agent={by ?? "An agent"} compact />)}
           {waiting > approvals.length && <Link href="/inbox">See all {waiting} in the Inbox</Link>}
-        </section>
+        </section>}
 
-        <section className="section">
+        {seesLedger && <section className="section">
           <h2>Done for you <small>by agents and automatic rules</small></h2>
           {runs.map((r) => (
             <Link key={r.id} href={`/runs/${r.id}`} className="notice good" style={{ display: "flex", gap: 10, alignItems: "center" }}>
@@ -96,7 +102,7 @@ export default async function Today() {
             </div>
           )}
           <p className="small"><Link href="/activity">Everything that has happened</Link></p>
-        </section>
+        </section>}
       </div>
     </>
   );
