@@ -1,5 +1,5 @@
 import { randomInt } from "node:crypto";
-import { and, asc, count, eq, inArray } from "drizzle-orm";
+import { and, asc, count, eq, inArray, ne } from "drizzle-orm";
 import type { Db } from "@/db/client";
 import { z } from "zod";
 import { contact, event, lead, registration, surveyResponse, sysJournal } from "@/db/schema";
@@ -406,5 +406,52 @@ export const registrationWalkIn = defineTool({
       : await ctx.db.insert(registration).values({ eventId, contactId: person.id, source: "walk-in", number: await nextNumber(ctx.db, "REG"), createdBy: ctx.principal.id, ...arrived }).returning({ id: registration.id, number: registration.number });
     await ctx.emit("checkin.confirmed", { eventId, registrationId: row.id, contactId: person.id, walkIn: !existing });
     return { id: row.id, number: row.number, pin, alreadyCheckedIn: false };
+  },
+});
+
+export const contactUpdate = defineTool({
+  name: "contact.update",
+  description: "Correct a person's details: name, email, phone or job title. Leave a field out to keep it; send null to clear phone, last name or title. The change shows on every event they are part of.",
+  permission: "contact.write",
+  risk: "write",
+  input: z.object({
+    contactId: z.uuid(),
+    firstName: z.string().trim().min(1).max(80).optional(),
+    lastName: z.string().trim().max(80).nullable().optional(),
+    email: z.string().trim().toLowerCase().pipe(z.email()).optional(),
+    phone: z.string().trim().regex(/^\+[1-9]\d{7,14}$/, "Use international format, e.g. +919876543210").nullable().optional(),
+    title: z.string().trim().max(120).nullable().optional(),
+  }),
+  async handler(ctx, { contactId, ...changes }) {
+    if (changes.email) {
+      const [taken] = await ctx.db.select({ id: contact.id }).from(contact).where(and(eq(contact.email, changes.email), ne(contact.id, contactId)));
+      if (taken) throw new ToolError("email_taken", "Someone else on record already has that email");
+    }
+    // A phone number that is removed takes the WhatsApp opt-in with it: the consent was for that number.
+    const consent = changes.phone === null ? { whatsappOptInAt: null } : {};
+    const [row] = await ctx.db.update(contact).set({ ...changes, ...consent, updatedBy: ctx.principal.id, updatedAt: new Date() }).where(eq(contact.id, contactId)).returning({ id: contact.id, email: contact.email });
+    if (!row) throw new ToolError("not_found", "No such person");
+    return row;
+  },
+});
+
+export const registrationCheckInByNumber = defineTool({
+  name: "registration.check_in_by_number",
+  description: "Check a guest in from the number on their pass, as read from its QR code. The pass must belong to this event.",
+  permission: "checkin.write",
+  risk: "write",
+  input: z.object({ eventId: z.uuid(), number: z.string().trim().toUpperCase().regex(/^REG\d{1,12}$/, "That is not a pass number") }),
+  async handler(ctx, { eventId, number }) {
+    const [row] = await ctx.db.select({ r: registration, firstName: contact.firstName, lastName: contact.lastName }).from(registration).innerJoin(contact, eq(contact.id, registration.contactId)).where(eq(registration.number, number));
+    if (!row || row.r.eventId !== eventId) throw new ToolError("wrong_event", "That pass is not for this event");
+    const name = [row.firstName, row.lastName].filter(Boolean).join(" ");
+    if (row.r.checkedInAt) return { id: row.r.id, name, pin: row.r.pin, alreadyCheckedIn: true };
+    if (row.r.status === "cancelled" || row.r.status === "declined") throw new ToolError("cancelled", `${name} cancelled or declined`);
+    if (row.r.status === "pending") throw new ToolError("not_approved", `${name} has not been approved yet`);
+    if (row.r.status === "waitlisted") throw new ToolError("waitlisted", `${name} is on the waitlist and does not have a place`);
+    const pin = String(randomInt(0, 1_000_000)).padStart(6, "0");
+    await ctx.db.update(registration).set({ status: "attended", pin, checkedInAt: new Date(), checkedInBy: ctx.principal.id, updatedBy: ctx.principal.id, updatedAt: new Date() }).where(eq(registration.id, row.r.id));
+    await ctx.emit("checkin.confirmed", { eventId, registrationId: row.r.id, contactId: row.r.contactId, scanned: true });
+    return { id: row.r.id, name, pin, alreadyCheckedIn: false };
   },
 });

@@ -236,8 +236,9 @@ export async function campaignAction(form: FormData) {
   const eventId = text(form, "eventId")!;
   const result = await invoke<{ queued: number; skipped: number }>(await getDb(), principal, "campaign.send", {
     eventId, segment: text(form, "segment"), channel: text(form, "channel"), subject: text(form, "subject"), body: text(form, "body"), key: text(form, "key"),
+    sendAt: text(form, "sendAt") ? zonedToIso(text(form, "sendAt")!, text(form, "timezone") ?? DEFAULT_TIMEZONE) : undefined,
   });
-  done(returnTo(form, `/events/${eventId}`), result, result.status === "ok" ? `Queued for ${result.output.queued} guest(s); ${result.output.skipped} skipped for lack of consent${text(form, "key") && result.output.queued === 0 ? ". Everyone on the list has already had this invitation." : ""}` : undefined);
+  done(returnTo(form, `/events/${eventId}`), result, result.status === "ok" ? `${text(form, "sendAt") ? "Scheduled" : "Queued"} for ${result.output.queued} guest(s); ${result.output.skipped} skipped for lack of consent${text(form, "key") && result.output.queued === 0 ? ". Everyone on the list has already had this invitation." : ""}` : undefined);
 }
 
 export async function resetPasswordAction(form: FormData) {
@@ -427,7 +428,7 @@ export async function updateDetailsAction(form: FormData) {
   const timezone = text(form, "timezone") ?? DEFAULT_TIMEZONE;
   const when = (key: string) => { const v = text(form, key); return v ? zonedToIso(v, timezone) : null; };
   done(returnTo(form, `/events/${eventId}`), await invoke(await getDb(), principal, "event.update", {
-    eventId, name: text(form, "name"), slug: text(form, "slug"), startsAt: when("startsAt"), endsAt: when("endsAt"),
+    eventId, name: text(form, "name"), slug: text(form, "slug"), startsAt: when("startsAt"), endsAt: when("endsAt"), hostName: text(form, "hostName") ?? null,
     venue: text(form, "venue") ?? null, locationUrl: text(form, "locationUrl") ?? null, coverImageUrl: text(form, "coverImageUrl") ?? null,
     description: text(form, "description")?.replace(/\r\n/g, "\n") ?? null, brief: text(form, "brief")?.replace(/\r\n/g, "\n") ?? null,
   }), "Saved");
@@ -472,4 +473,88 @@ export async function setActiveAction(form: FormData) {
   const principal = await requirePrincipal();
   const active = text(form, "active") === "true";
   done("/team", await invoke(await getDb(), principal, "user.set_active", { userId: text(form, "userId"), active }), active ? "Account switched back on" : "Account switched off. They have been signed out.");
+}
+
+/** The Emails form on an event's Setup tab. */
+export async function updateEmailsAction(form: FormData) {
+  const principal = await requirePrincipal();
+  const eventId = text(form, "eventId")!;
+  done(returnTo(form, `/events/${eventId}`), await invoke(await getDb(), principal, "event.update", {
+    eventId, reminders: form.get("reminders") === "on", feedbackEmail: form.get("feedbackEmail") === "on",
+    confirmationNote: text(form, "confirmationNote")?.replace(/\r\n/g, "\n") ?? null,
+  }), "Saved");
+}
+
+export async function unscheduleAction(form: FormData) {
+  const principal = await requirePrincipal();
+  const eventId = text(form, "eventId")!;
+  const result = await invoke<{ stopped: number }>(await getDb(), principal, "campaign.unschedule", { eventId, key: text(form, "key") });
+  done(returnTo(form, `/events/${eventId}`), result, result.status === "ok" ? `Stopped. ${result.output.stopped} message(s) will not be sent.` : undefined);
+}
+
+/** One correction to a guest's details, from the Guests tab. */
+export async function updateGuestAction(form: FormData) {
+  const principal = await requirePrincipal();
+  done(returnTo(form, `/events/${text(form, "eventId")}`), await invoke(await getDb(), principal, "contact.update", {
+    contactId: text(form, "contactId"), firstName: text(form, "firstName"), lastName: text(form, "lastName") ?? null,
+    email: text(form, "email"), phone: text(form, "phone") ?? null, title: text(form, "title") ?? null,
+  }), "Saved");
+}
+
+const BULK: Record<string, { tool: string; done: string }> = {
+  approve: { tool: "registration.approve", done: "approved" }, decline: { tool: "registration.decline", done: "turned down" },
+  check_in: { tool: "registration.check_in", done: "checked in" }, cancel: { tool: "registration.cancel", done: "cancelled" },
+};
+
+/** The same thing done to every ticked guest. Each one goes through its tool, so each is checked and recorded on its own. */
+export async function bulkGuestsAction(form: FormData) {
+  const principal = await requirePrincipal();
+  const back = returnTo(form, `/events/${text(form, "eventId")}`);
+  const join = back.includes("?") ? "&" : "?";
+  const choice = BULK[text(form, "bulk") ?? ""];
+  const ids = form.getAll("ids").map(String).filter((id) => /^[0-9a-f-]{36}$/i.test(id)).slice(0, 200);
+  if (!choice || ids.length === 0) redirect(`${back}${join}notice=${encodeURIComponent(choice ? "Tick at least one guest first." : "Choose what to do with the ticked guests.")}`);
+  const db = await getDb();
+  let worked = 0;
+  const refused = new Map<string, number>();
+  for (const registrationId of ids) {
+    const result = await invoke<{ changed?: boolean; alreadyCheckedIn?: boolean }>(db, principal, choice.tool, { registrationId });
+    // "Nothing to do" (already checked in, not waiting for approval) is not a failure, but it is not counted as done either.
+    if (result.status === "ok" && result.output.changed !== false && result.output.alreadyCheckedIn !== true) worked++;
+    else { const why = result.status === "ok" ? "nothing to change" : explain(result); refused.set(why, (refused.get(why) ?? 0) + 1); }
+  }
+  deliverSoon();
+  revalidatePath(back.split("?")[0]);
+  const skipped = [...refused].map(([why, n]) => `${n} skipped (${why})`).join(", ");
+  redirect(`${back}${join}ok=${encodeURIComponent(`${worked} ${choice.done}${skipped ? `; ${skipped}` : ""}.`)}`);
+}
+
+/** A pass scanned at the door. Goes back to the desk with the camera still on, ready for the next guest. */
+export async function scanCheckInAction(form: FormData) {
+  const principal = await requirePrincipal();
+  const eventId = text(form, "eventId")!;
+  const result = await invoke<{ name: string; pin: string; alreadyCheckedIn: boolean }>(await getDb(), principal, "registration.check_in_by_number", { eventId, number: text(form, "number") });
+  done(`/events/${eventId}/desk?scan=1`, result, result.status === "ok" ? `${result.output.name}: ${result.output.alreadyCheckedIn ? "already checked in" : "checked in"}. PIN ${result.output.pin}` : undefined);
+}
+
+/* Forgotten passwords. Nobody is signed in, so these run as the Public site account. */
+
+export async function requestResetAction(form: FormData) {
+  const db = await getDb();
+  const address = (await headers()).get("x-forwarded-for")?.split(",")[0].trim() ?? "local";
+  // Five requests an hour from one connection: enough for a typo or two, not enough to fill someone's inbox.
+  if ((await limitHit(db, `reset:${address.slice(0, 80)}`, 3600_000)) <= 5) {
+    await invoke(db, await servicePrincipal(db, "Public site"), "account.request_reset", { email: text(form, "email") ?? "" });
+    deliverSoon();
+  }
+  redirect("/reset?sent=1");
+}
+
+export async function completeResetAction(form: FormData) {
+  const token = text(form, "token") ?? "";
+  const db = await getDb();
+  const result = await invoke(db, await servicePrincipal(db, "Public site"), "account.reset_password", { token, password: String(form.get("password") ?? "") });
+  if (result.status === "ok") redirect("/signin?ok=" + encodeURIComponent("Password changed. Sign in with the new one."));
+  // A password that is too short keeps the link alive; a dead link sends them to ask for another.
+  redirect(result.status === "invalid" ? `/reset/${encodeURIComponent(token)}?notice=${encodeURIComponent("Use at least 10 characters.")}` : `/reset?notice=${encodeURIComponent(explain(result))}`);
 }

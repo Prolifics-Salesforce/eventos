@@ -14,14 +14,15 @@ An honest list of what this build does not do, as of 19 November 2026. Read it b
 ## Missing features
 
 - Contacts and Companies screens (the data exists; no screen shows a person's history across events).
-- Editing or removing sessions and speakers; editing a guest's details.
+- Editing or removing sessions and speakers; editing a guest's answers to the event's questions (their name, email, phone and title can be corrected).
 - Uploading a cover picture: the public page shows one from a web address, but there is no file storage yet.
-- Search, filters and paging on guest and lead tables.
-- Calendar invitations attached to emails (the confirmation links to a calendar file instead); branded HTML emails; editable confirmation wording; bounce handling.
-- QR scanning at the desk, offline mode.
+- Search, filters and paging on the lead table (the guest table has them).
+- Calendar invitations attached to emails (the confirmation links to a calendar file instead); an email designer (emails go out as plain text plus a simple branded HTML version; `ORG_NAME` and `BRAND_COLOR` set the name and colour); rewording the confirmation beyond adding a note; bounce handling.
+- A scheduled message is sent to whoever matched when it was scheduled, not when it goes out. It cannot be edited, only stopped and written again.
+- Offline mode at the desk. The camera scanner has been tested for everything except the camera itself: it has not been pointed at a real pass on a real phone.
 - Business-card scanning; native Salesforce or HubSpot sync (signed webhooks are the bridge).
 - WhatsApp delivery (queueing and opt-in are enforced; no provider is connected).
-- Single sign-on, two-step sign-in, password reset by email link, event approvals.
+- Single sign-on, two-step sign-in, event approvals.
 - A page and email designer, attendee app, networking, sponsors and exhibitors, ticketing and payments, virtual sessions.
 - A light theme, languages other than English.
 

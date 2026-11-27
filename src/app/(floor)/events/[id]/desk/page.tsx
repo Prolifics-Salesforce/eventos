@@ -6,11 +6,12 @@ import { can, requirePrincipal } from "@/lib/session";
 import { Denied } from "@/components/denied";
 
 import { contact, event, registration } from "@/db/schema";
-import { checkInAction, undoCheckInAction, walkInAction } from "@/app/actions";
+import { checkInAction, scanCheckInAction, undoCheckInAction, walkInAction } from "@/app/actions";
+import { QrScanner } from "@/components/qr-scanner";
 
-export default async function Desk({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ q?: string; notice?: string; ok?: string }> }) {
+export default async function Desk({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ q?: string; notice?: string; ok?: string; scan?: string }> }) {
   const { id } = await params;
-  const { q = "", notice, ok } = await searchParams;
+  const { q = "", notice, ok, scan } = await searchParams;
   if (!/^[0-9a-f-]{36}$/i.test(id)) notFound();
   if (!can(await requirePrincipal(), "checkin.write")) return <Denied title="Door desk" />;
   const db = await getDb();
@@ -32,6 +33,7 @@ export default async function Desk({ params, searchParams }: { params: Promise<{
       </div>
       {notice && <div className="notice">{notice}</div>}
       {ok && <div className="notice good">{ok}</div>}
+      <QrScanner action={scanCheckInAction} eventId={id} auto={scan === "1"} />
       <form method="get" className="row" style={{ marginBottom: 8 }}>
         <input name="q" defaultValue={term} placeholder="Name, email or pass number" autoFocus style={{ flex: 1 }} />
         <button type="submit">Find</button>

@@ -232,18 +232,19 @@ weeks.
 | --- | --- | --- |
 | Edit event: name, dates, slug; cancel event with a notice to guests | S | Done |
 | Public event page: description, map link, cover picture from a web address | M | Done |
-| Cover picture upload (needs file storage) and host names on the page | M | Not done |
+| Host name on the public page | S | Done |
+| Cover picture upload (needs file storage) | M | Not done: needs a decision on where files are kept |
 | More question types: phone, company, website, social profile, terms | S | Done |
 | Require-approval registration (`pending` status, approve / turn down in the guest table) | M | Done |
 | Calendar file (.ics) linked from the confirmation email, the public page and the pass | S | Done |
 | Desk: undo check-in, walk-in registration | M | Done |
 | Team: change role, switch an account off and on | S | Done |
-| Guest table: search, filters, paging, bulk actions, edit a guest | M | Not done |
-| Editable confirmation wording; HTML email template | M | Not done |
-| Reminders: 1 day and 1 hour, switchable per event; scheduled messages | M | Not done |
-| Post-event feedback email, scheduled | S | Not done |
-| Desk: camera QR scan | M | Not done |
-| Password reset by email | S | Not done |
+| Guest table: search, filters, paging, bulk actions, correct a guest's details | M | Done |
+| A note added to the confirmation email; HTML version of every email | M | Done |
+| Reminders: 1 day and 1 hour, switchable per event; scheduled messages that can be stopped | M | Done |
+| Post-event feedback email, an hour after the end, switchable per event | S | Done |
+| Desk: camera QR scan | M | Built; not yet tried with a real camera |
+| Password reset by email | S | Done |
 
 ### Phase 2 — Growth and money
 

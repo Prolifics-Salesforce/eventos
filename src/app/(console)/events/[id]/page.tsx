@@ -1,12 +1,12 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { and, asc, desc, eq, inArray } from "drizzle-orm";
+import { and, asc, count, desc, eq, gt, ilike, inArray, min, or, sql } from "drizzle-orm";
 import { getDb } from "@/db/client";
-import { budgetItem, contact, event, eventSession, formField, lead, surveyResponse, registration, sessionSpeaker, sysJournal, sysOutbox, sysUser, task, type EventStatus } from "@/db/schema";
+import { budgetItem, contact, event, eventSession, formField, lead, surveyResponse, registration, sessionSpeaker, sysJournal, sysOutbox, sysUser, task, type EventStatus, type RegistrationStatus } from "@/db/schema";
 import {
   addFieldAction, addGuestAction, addSessionAction, addSpeakerAction, addTaskAction, budgetItemAction, campaignAction, cancelRegistrationAction, captureLeadAction,
   checkInAction, cloneEventAction, importGuestsAction, leadValueAction, removeBudgetAction, removeFieldAction, runAgentAction, setStatusAction, taskStateAction, updateEventAction, updateLocaleAction,
-  cancelEventAction, decideGuestAction, undoCheckInAction, updateDetailsAction,
+  bulkGuestsAction, cancelEventAction, decideGuestAction, undoCheckInAction, unscheduleAction, updateDetailsAction, updateEmailsAction, updateGuestAction,
 } from "@/app/actions";
 import { ago, countdown } from "@/lib/describe";
 import { eventInsights, money } from "@/lib/insights";
@@ -22,6 +22,7 @@ const NEXT_STATUS: Record<EventStatus, { status: EventStatus; label: string }[]>
   archived: [{ status: "closed", label: "Unarchive" }],
   cancelled: [{ status: "draft", label: "Reopen as a draft" }],
 };
+const GUEST_STATUS: Record<string, string> = { invited: "Awaiting reply", pending: "Awaiting approval", registered: "Registered", waitlisted: "On the waitlist", attended: "Checked in", declined: "Declined", cancelled: "Cancelled" };
 const QUESTION: Record<string, string> = { text: "free text", checkbox: "tick box", phone: "phone number", company: "company name", website: "web address", social: "social profile", terms: "must agree" };
 const KIND = { booth: "Booth", field: "Field event", conference: "Conference" } as const;
 const PROMPTS = {
@@ -30,9 +31,15 @@ const PROMPTS = {
   Outreach: "Remind everyone who has not checked in about the agenda",
 };
 
-export default async function EventPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ notice?: string; ok?: string; tab?: string }> }) {
+export default async function EventPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ notice?: string; ok?: string; tab?: string; q?: string; status?: string; page?: string; edit?: string }> }) {
   const { id } = await params;
-  const { notice, ok, tab: asked } = await searchParams;
+  const { notice, ok, tab: asked, q: asksFor = "", status: asksStatus = "", page: asksPage, edit } = await searchParams;
+  // The guest table: what is searched for, which status is shown, and which page of 50.
+  const PAGE = 50;
+  const term = asksFor.trim().slice(0, 80);
+  const only = Object.keys(GUEST_STATUS).includes(asksStatus) ? (asksStatus as RegistrationStatus) : null;
+  const pageNo = Math.max(1, Math.floor(Number(asksPage)) || 1);
+  const like = `%${term.replace(/[%_\\]/g, "\\$&")}%`;
   if (!/^[0-9a-f-]{36}$/i.test(id)) notFound();
   const me = await requirePrincipal();
   if (!can(me, "event.read")) return <Denied title="Events" />;
@@ -41,10 +48,15 @@ export default async function EventPage({ params, searchParams }: { params: Prom
   if (!e) notFound();
   const wantsInsights = asked === "insights";
   // Everything the page shows is asked for at once, so the page waits for the slowest query, not for the sum of them.
-  const [fields, guests, sessions, leads, tasks, notes, messages, speakers, ins, budget, comments] = await Promise.all([
+  const guestWhere = and(
+    eq(registration.eventId, id),
+    term ? or(ilike(contact.firstName, like), ilike(contact.lastName, like), ilike(contact.email, like), ilike(registration.number, like)) : undefined,
+    only ? eq(registration.status, only) : undefined,
+  );
+  const [fields, guests, sessions, leads, tasks, notes, messages, speakers, ins, budget, comments, [matching], scheduled, [editing]] = await Promise.all([
     db.select().from(formField).where(eq(formField.eventId, id)).orderBy(asc(formField.position)),
     db.select({ r: registration, c: contact }).from(registration).innerJoin(contact, eq(contact.id, registration.contactId))
-      .where(eq(registration.eventId, id)).orderBy(desc(registration.createdAt)),
+      .where(guestWhere).orderBy(desc(registration.createdAt)).limit(PAGE).offset((pageNo - 1) * PAGE),
     db.select().from(eventSession).where(eq(eventSession.eventId, id)).orderBy(asc(eventSession.startsAt)),
     db.select({ l: lead, c: contact }).from(lead).innerJoin(contact, eq(contact.id, lead.contactId))
       .where(eq(lead.eventId, id)).orderBy(desc(lead.score), desc(lead.createdAt)),
@@ -57,12 +69,18 @@ export default async function EventPage({ params, searchParams }: { params: Prom
     eventInsights(db, id, e),
     wantsInsights ? db.select().from(budgetItem).where(eq(budgetItem.eventId, id)).orderBy(asc(budgetItem.createdAt)) : [],
     wantsInsights ? db.select().from(surveyResponse).where(eq(surveyResponse.eventId, id)).orderBy(desc(surveyResponse.createdAt)).limit(6) : [],
+    db.select({ n: count() }).from(registration).innerJoin(contact, eq(contact.id, registration.contactId)).where(guestWhere),
+    // Messages held for later, one line per send rather than one per guest.
+    db.select({ key: sql<string>`${sysOutbox.meta}->>'campaign'`, subject: min(sysOutbox.subject), at: min(sysOutbox.nextAttemptAt), n: count() }).from(sysOutbox)
+      .where(and(eq(sysOutbox.eventId, id), eq(sysOutbox.status, "pending"), gt(sysOutbox.nextAttemptAt, new Date()), sql`${sysOutbox.meta}->>'campaign' is not null`))
+      .groupBy(sql`${sysOutbox.meta}->>'campaign'`).orderBy(min(sysOutbox.nextAttemptAt)),
+    edit && /^[0-9a-f-]{36}$/i.test(edit) ? db.select({ r: registration, c: contact }).from(registration).innerJoin(contact, eq(contact.id, registration.contactId)).where(and(eq(registration.id, edit), eq(registration.eventId, id))) : [],
   ]);
 
   // A tab a person's role does not include is not offered, and asking for it by address shows the overview instead.
   const tabs: { key: string; label: string; n?: number }[] = [
     { key: "overview", label: "Overview" },
-    ...(can(me, "contact.read") ? [{ key: "guests", label: "Guests", n: guests.length }] : []),
+    ...(can(me, "contact.read") ? [{ key: "guests", label: "Guests", n: ins.funnel.onList }] : []),
     ...(e.kind === "conference" ? [{ key: "agenda", label: "Agenda", n: sessions.length }] : []),
     ...(can(me, "contact.read") ? [{ key: "leads", label: "Leads", n: leads.length }] : []),
     ...(can(me, "message.send") ? [{ key: "messages", label: "Messages" }] : []),
@@ -70,12 +88,15 @@ export default async function EventPage({ params, searchParams }: { params: Prom
     ...(can(me, "event.write") ? [{ key: "setup", label: "Setup" }] : []),
   ];
   const tab = tabs.some((t) => t.key === asked) ? asked! : "overview";
-  const here = `/events/${e.id}${tab === "overview" ? "" : `?tab=${tab}`}`;
+  // Where the guest table is now, so an action on it comes back to the same search, filter and page.
+  const guestsAt = (page: number, extra = "") => `/events/${e.id}?tab=guests${term ? `&q=${encodeURIComponent(term)}` : ""}${only ? `&status=${only}` : ""}${page > 1 ? `&page=${page}` : ""}${extra}`;
+  const here = tab === "guests" ? guestsAt(pageNo) : `/events/${e.id}${tab === "overview" ? "" : `?tab=${tab}`}`;
+  const pages = Math.max(1, Math.ceil(matching.n / PAGE));
   const hidden = <><input type="hidden" name="eventId" value={e.id} /><input type="hidden" name="returnTo" value={here} /></>;
-  const attended = guests.filter((g) => g.r.checkedInAt).length;
+  const attended = ins.funnel.attended;
   const versus = (have: number, target: number | null) => target == null ? null : <span className={`vs ${have >= target ? "good" : "short"}`}>{have >= target ? "target met" : `${target - have} short of ${target}`}</span>;
-  const awaiting = guests.filter((g) => g.r.status === "invited").length;
-  const toApprove = guests.filter((g) => g.r.status === "pending").length;
+  const awaiting = ins.funnel.awaitingReply;
+  const toApprove = ins.funnel.awaitingApproval;
   const STATUS: Record<string, string> = { invited: "awaiting reply", pending: "awaiting approval", registered: "registered", waitlisted: "on the waitlist", declined: "declined", cancelled: "cancelled", attended: "checked in", no_show: "no show" };
   const hot = leads.filter((x) => x.l.band === "hot").length;
   const open = tasks.filter((t) => t.state !== "done" && t.state !== "cancelled");
@@ -195,13 +216,45 @@ export default async function EventPage({ params, searchParams }: { params: Prom
             <a className="button" href={`/events/${e.id}/export`}>Export CSV</a>
           </div>
           {toApprove > 0 && <div className="notice quiet" style={{ borderColor: "var(--amber)", color: "var(--amber)" }}>{toApprove} {toApprove === 1 ? "guest is" : "guests are"} waiting for your approval.</div>}
-          {guests.length === 0 ? <div className="empty">Nobody has registered yet. Share the public page from Setup, or add guests here.</div> : (
+          {editing && can(me, "contact.write") && (
+            <form action={updateGuestAction} className="card" style={{ marginBottom: 18 }}>
+              {hidden}<input type="hidden" name="contactId" value={editing.c.id} />
+              <h2>Correct {editing.c.firstName}'s details</h2>
+              <div className="row" style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+                <label>First name<input name="firstName" required maxLength={80} defaultValue={editing.c.firstName} /></label>
+                <label>Last name<input name="lastName" maxLength={80} defaultValue={editing.c.lastName ?? ""} /></label>
+                <label style={{ flexBasis: 240 }}>Email<input name="email" type="email" required defaultValue={editing.c.email} /></label>
+                <label>Phone<input name="phone" placeholder="+919876543210" defaultValue={editing.c.phone ?? ""} /></label>
+                <label>Job title<input name="title" maxLength={120} defaultValue={editing.c.title ?? ""} /></label>
+              </div>
+              <div className="actions" style={{ marginTop: 12 }}><button type="submit">Save</button><Link href={here}>Close</Link><span className="small faint">One person is one record: the change shows on every event they are part of.</span></div>
+            </form>
+          )}
+          {ins.funnel.onList > 0 && (
+            <div className="toolbar">
+              <form method="get" className="actions" style={{ flex: 1 }}>
+                <input type="hidden" name="tab" value="guests" />
+                <input name="q" defaultValue={term} placeholder="Name, email or pass number" aria-label="Search guests" style={{ maxWidth: 260 }} />
+                <select name="status" defaultValue={only ?? ""} aria-label="Show" style={{ width: "auto" }}><option value="">Everyone</option>{Object.entries(GUEST_STATUS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select>
+                <button type="submit" className="ghost">Show</button>
+                {(term || only) && <Link href={`/events/${e.id}?tab=guests`} className="small">Clear</Link>}
+                <span className="small muted">{matching.n === ins.funnel.onList ? `${matching.n} on the list` : `${matching.n} of ${ins.funnel.onList}`}</span>
+              </form>
+              <form id="bulk" action={bulkGuestsAction} className="actions">
+                {hidden}
+                <select name="bulk" defaultValue="" aria-label="With the ticked guests" style={{ width: "auto" }}><option value="" disabled>With the ticked guests…</option><option value="approve">Approve</option><option value="decline">Turn down</option><option value="check_in">Check in</option><option value="cancel">Cancel their place</option></select>
+                <button type="submit" className="ghost">Apply</button>
+              </form>
+            </div>
+          )}
+          {ins.funnel.onList === 0 ? <div className="empty">Nobody has registered yet. Share the public page from Setup, or add guests here.</div> : guests.length === 0 ? <div className="empty">Nobody matches that.</div> : (
             <table>
-              <thead><tr><th>Guest</th><th>Status</th><th>Came from</th><th>Pass</th><th></th></tr></thead>
+              <thead><tr><th style={{ width: 28 }}><span className="faint small">Tick</span></th><th>Guest</th><th>Status</th><th>Came from</th><th>Pass</th><th></th></tr></thead>
               <tbody>
                 {guests.map(({ r, c }) => (
                   <tr key={r.id}>
-                    <td>{c.firstName} {c.lastName}<span className="sub">{c.email}</span></td>
+                    <td><input type="checkbox" name="ids" value={r.id} form="bulk" aria-label={`Select ${c.firstName} ${c.lastName ?? ""}`} style={{ width: "auto" }} /></td>
+                    <td>{c.firstName} {c.lastName}{can(me, "contact.write") && <> <Link className="small" href={guestsAt(pageNo, `&edit=${r.id}`)}>Edit</Link></>}<span className="sub">{c.email}</span></td>
                     <td><span className={`pill ${r.checkedInAt ? "attended" : r.status === "waitlisted" || r.status === "invited" || r.status === "pending" ? "held" : r.status === "declined" || r.status === "cancelled" ? "" : r.status}`}>{STATUS[r.checkedInAt ? "attended" : r.status]}</span></td>
                     <td className="muted">{r.source === "web" ? "Public page" : r.source === "staff" ? "Added by staff" : r.source === "import" ? "Guest list" : r.source}</td>
                     <td><Link href={`/e/${e.slug}/pass/${r.id}`} target="_blank">{r.number}</Link>{r.pin && <span className="sub">PIN {r.pin}</span>}</td>
@@ -227,6 +280,13 @@ export default async function EventPage({ params, searchParams }: { params: Prom
                 ))}
               </tbody>
             </table>
+          )}
+          {pages > 1 && (
+            <div className="actions" style={{ marginTop: 14 }}>
+              {pageNo > 1 ? <Link className="button" href={guestsAt(pageNo - 1)}>Previous</Link> : null}
+              <span className="small muted">Page {Math.min(pageNo, pages)} of {pages}</span>
+              {pageNo < pages ? <Link className="button" href={guestsAt(pageNo + 1)}>Next</Link> : null}
+            </div>
           )}
         </>
       )}
@@ -316,8 +376,21 @@ export default async function EventPage({ params, searchParams }: { params: Prom
               </div>
               <label>Subject, for email<input name="subject" maxLength={200} /></label>
               <label>Message<textarea name="body" required style={{ minHeight: 150 }} placeholder={"Hi {{first_name}},\n\nA quick update about {{event_name}}.\n\nYour pass: {{pass_url}}"} /></label>
-              <div className="actions"><button type="submit">Send now</button><span className="small faint">Guests without consent for the channel are skipped.</span></div>
+              <input type="hidden" name="timezone" value={e.timezone} />
+              <label>Send at (optional)<input name="sendAt" type="datetime-local" /></label>
+              <div className="actions"><button type="submit">Send</button><span className="small faint">Leave the time empty to send now. Times are in {e.timezone}. Guests without consent for the channel are skipped.</span></div>
             </form>
+            {scheduled.length > 0 && (
+              <>
+                <h2 style={{ marginTop: 26 }}>Waiting to go out</h2>
+                <div className="feed">{scheduled.map((s) => (
+                  <div key={s.key} style={{ alignItems: "center" }}>
+                    <span><span style={{ fontWeight: 500 }}>{s.subject ?? "WhatsApp message"}</span><span className="small muted" style={{ display: "block" }}>{s.n} {s.n === 1 ? "guest" : "guests"}, {formatWhen(s.at, e.timezone)}</span></span>
+                    <form action={unscheduleAction} style={{ marginLeft: "auto" }}>{hidden}<input type="hidden" name="key" value={s.key} /><button className="ghost" type="submit">Stop</button></form>
+                  </div>
+                ))}</div>
+              </>
+            )}
           </section>
           <section className="section">
             <h2>Recently sent <small>for this event</small></h2>
@@ -417,6 +490,7 @@ export default async function EventPage({ params, searchParams }: { params: Prom
                 <label>Starts<input name="startsAt" type="datetime-local" defaultValue={isoToZonedLocal(e.startsAt, e.timezone)} /></label>
                 <label>Ends<input name="endsAt" type="datetime-local" defaultValue={isoToZonedLocal(e.endsAt, e.timezone)} /></label>
               </div>
+              <label>Hosted by (optional)<input name="hostName" maxLength={120} defaultValue={e.hostName ?? ""} placeholder="Your company or team, as guests should read it" /></label>
               <label>Venue<input name="venue" maxLength={200} defaultValue={e.venue ?? ""} /></label>
               <label>Link to a map of the venue (optional)<input name="locationUrl" type="url" placeholder="https://maps.app.goo.gl/…" defaultValue={e.locationUrl ?? ""} /></label>
               <label>What guests read on the public page<textarea name="description" rows={6} maxLength={10000} defaultValue={e.description ?? ""} placeholder="What the event is, who it is for and what will happen. A blank line starts a new paragraph." /></label>
@@ -435,6 +509,14 @@ export default async function EventPage({ params, searchParams }: { params: Prom
               <button type="submit" className="ghost">Save</button>
             </form>
             <p className="small faint" style={{ marginTop: -14 }}>When every place is taken, new guests join a waitlist and are moved up automatically when someone cancels.</p>
+            <h2>Emails that go out on their own</h2>
+            <form action={updateEmailsAction} className="stack" style={{ marginBottom: 26 }}>
+              {hidden}
+              <label className="check"><input type="checkbox" name="reminders" defaultChecked={e.reminders} /> Remind guests a day before and an hour before</label>
+              <label className="check"><input type="checkbox" name="feedbackEmail" defaultChecked={e.feedbackEmail} /> Afterwards, ask everyone who came how it was</label>
+              <label>A note added to every confirmation email (optional)<textarea name="confirmationNote" rows={3} maxLength={2000} defaultValue={e.confirmationNote ?? ""} placeholder="Parking, dress code, who to ask for at reception." /></label>
+              <div><button type="submit" className="ghost">Save</button></div>
+            </form>
             <h2>Time zone and currency</h2>
             <form action={updateLocaleAction} className="row" style={{ marginBottom: 26 }}>
               {hidden}

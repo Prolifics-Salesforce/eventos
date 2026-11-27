@@ -15,7 +15,7 @@ Generated from the code. Every change to data goes through one of these tools, w
 | `event.public_info` | event.read | read | What the public may know about an event: name, time, venue and, for conferences, the agenda. Nothing internal. |
 | `form.add_field` | event.write | write | Add a question to an event's registration form or to its lead capture screen: free text, choose one, tick box, company, phone number, web address, social profile, or terms the guest must agree to. |
 | `form.remove_field` | event.write | write | Remove a question from a form. Answers already given are kept on the records. |
-| `event.update` | event.write | write | Change an event's details: name, dates, venue, public description, cover image, map link, address of the public page, brief, capacity, targets, whether guests need approval, time zone and currency. Leave a field out to keep it; send null to clear one. Changing the address breaks links already sent. |
+| `event.update` | event.write | write | Change an event's details: name, dates, host, venue, public description, cover image, map link, address of the public page, brief, capacity, targets, whether guests need approval, the confirmation note, reminders and the feedback email, time zone and currency. Leave a field out to keep it; send null to clear one. Changing the address breaks links already sent. |
 | `event.clone` | event.write | write | Start a new draft from an existing event: same type, venue, brief, capacity, targets, questions, planned budget and session outline. Guests, leads and messages are not copied. |
 | `budget.set_item` | event.write | write | Add a budget line to an event, or update one: what it is, the planned amount and, once known, the actual amount. |
 | `budget.remove_item` | event.write | write | Remove a budget line from an event. |
@@ -33,7 +33,7 @@ Generated from the code. Every change to data goes through one of these tools, w
 | `survey.submit` | registration.write | write | Record a guest's answer to how likely they are to recommend the event (0 to 10), with an optional comment. One answer per guest; a second replaces the first. |
 | `lead.set_value` | lead.write | write | Record what a lead could be worth, as judged by the salesperson. Send null to clear it. |
 | `message.send` | message.send | external | Queue an email or WhatsApp message to one contact. Refused when the contact has opted out of email, or has not opted in to WhatsApp. |
-| `campaign.send` | message.send | external | Send one message to a segment of an event's guests. Use {{first_name}}, {{event_name}}, {{pass_url}} and, for invitations, {{rsvp_url}} in the text. People without consent for the channel are skipped. One approval covers the whole send. |
+| `campaign.send` | message.send | external | Send one message to a segment of an event's guests, now or at a later time (up to 90 days ahead; who receives it is decided when it is scheduled). Use {{first_name}}, {{event_name}}, {{pass_url}} and, for invitations, {{rsvp_url}} in the text. People without consent for the channel are skipped. One approval covers the whole send. |
 | `contact.unsubscribe` | consent.write | write | Record that a contact no longer wants email. Used by the unsubscribe link. |
 | `task.create` | task.write | write | Create a to-do for a person or an agent, optionally tied to an event. |
 | `task.set_state` | task.write | write | Mark a to-do open, in progress, done or cancelled. |
@@ -53,6 +53,11 @@ Generated from the code. Every change to data goes through one of these tools, w
 | `registration.walk_in` | checkin.write | write | Register someone who turned up at the door and check them in, in one step. Never changes an existing contact's details. Works when the event is full. |
 | `user.set_role` | admin.manage | write | Change a team member's role. It takes effect on their next page. |
 | `user.set_active` | admin.manage | write | Switch a team member's account off or back on. Switching it off signs them out everywhere. |
+| `campaign.unschedule` | message.send | write | Stop a scheduled message to guests before it goes out. Messages already sent are not affected. |
+| `contact.update` | contact.write | write | Correct a person's details: name, email, phone or job title. The change shows on every event they are part of. Removing the phone number removes the WhatsApp opt-in. |
+| `registration.check_in_by_number` | checkin.write | write | Check a guest in from the number on their pass, as read from its QR code. The pass must belong to this event. |
+| `account.request_reset` | account.reset | write | Email a team member a link to choose a new password. Says the same whether or not the email belongs to anyone. |
+| `account.reset_password` | account.reset | write | Set a new password using the link from a reset email. The link works once, for an hour; using it signs the person out everywhere. |
 | `contact.export` | admin.manage | read | Everything held about one person, found by email: their details, registrations, leads, survey answers, messages sent to them and notes about them. |
 | `contact.erase` | admin.manage | destructive | Remove one person, found by email, and everything held about them: registrations, leads, survey answers, messages, notes, and their details in the ledger. This cannot be undone. |
 
@@ -60,11 +65,11 @@ Generated from the code. Every change to data goes through one of these tools, w
 
 | Role | Permissions |
 | --- | --- |
-| admin | all 19 |
+| admin | all 20 |
 | organiser | event.read, event.write, event.publish, session.write, contact.read, contact.write, registration.write, checkin.write, lead.write, message.send, task.write, note.write, approval.decide, agent.run, account.self, consent.write, insights.read, audit.read |
 | sales | event.read, contact.read, contact.write, lead.write, note.write, account.self, insights.read |
 | desk | event.read, contact.read, checkin.write, account.self |
-| public_site | registration.write, consent.write |
+| public_site | registration.write, consent.write, account.reset |
 | system | message.send, task.write, agent.run |
 | agent_builder | event.read, event.write, event.publish, session.write, task.write, note.write |
 | agent_lead | event.read, contact.read, lead.write, message.send, task.write, note.write |

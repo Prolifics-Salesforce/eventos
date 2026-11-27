@@ -43,6 +43,11 @@ const VERBS: Record<string, (i: Input) => string> = {
   "webhook.remove": () => "disconnected another system",
   "playbook.set": () => "updated the playbook",
   "event.cancel": () => "cancelled an event",
+  "campaign.unschedule": () => "stopped a scheduled message",
+  "contact.update": () => "corrected a person's details",
+  "registration.check_in_by_number": () => "checked a guest in from their pass",
+  "account.request_reset": () => "asked for a password reset link",
+  "account.reset_password": () => "set a new password from a reset link",
   "registration.approve": () => "approved a guest",
   "registration.decline": () => "turned a guest down",
   "registration.undo_check_in": () => "took back a check-in",
@@ -57,7 +62,7 @@ const VERBS: Record<string, (i: Input) => string> = {
 const BASE: Record<string, string> = {
   created: "create", read: "read", looked: "look", set: "set", added: "add", removed: "remove", saved: "save", recorded: "record", registered: "register",
   checked: "check", exported: "export", captured: "capture", scored: "score", sent: "send", messaged: "message", marked: "mark", wrote: "write", asked: "ask",
-  reset: "reset", changed: "change", ran: "run", updated: "update", started: "start", erased: "erase", approved: "approve", turned: "turn", took: "take", made: "make", switched: "switch", put: "put", cancelled: "cancel", connected: "connect", disconnected: "disconnect",
+  reset: "reset", changed: "change", ran: "run", updated: "update", started: "start", erased: "erase", approved: "approve", turned: "turn", stopped: "stop", corrected: "correct", took: "take", made: "make", switched: "switch", put: "put", cancelled: "cancel", connected: "connect", disconnected: "disconnect",
 };
 
 export function sentence(tool: string, input: unknown, status: string): string {

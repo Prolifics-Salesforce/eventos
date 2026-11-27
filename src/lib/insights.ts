@@ -27,7 +27,7 @@ function summarise(e: EventRow | undefined, regs: Reg[], leads: LeadRow[], budge
   const detractors = surveys.filter((s) => s.score <= 6).length;
   return {
     currency: e?.currency ?? DEFAULT_CURRENCY,
-    funnel: { onList: invited, awaitingReply: n("invited"), registered, attended, waitlisted: n("waitlisted"), declined: n("declined"), cancelled: n("cancelled") },
+    funnel: { onList: invited, awaitingReply: n("invited"), awaitingApproval: n("pending"), registered, attended, waitlisted: n("waitlisted"), declined: n("declined"), cancelled: n("cancelled") },
     showRate: registered ? Math.round((attended / registered) * 100) : null,
     leads: { total: leads.length, hot: leads.filter((l) => l.band === "hot").length, warm: leads.filter((l) => l.band === "warm").length },
     targets: { registrations: e?.targetRegistrations ?? null, leads: e?.targetLeads ?? null, capacity: e?.capacity ?? null },

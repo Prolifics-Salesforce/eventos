@@ -20,7 +20,7 @@ export const consoleDriver: Driver = async (m) => {
 };
 
 export type Enqueue = Pick<OutboxMessage, "channel" | "recipient" | "body"> &
-  Partial<Pick<OutboxMessage, "subject" | "meta" | "contactId" | "eventId" | "dedupeKey" | "createdBy">>;
+  Partial<Pick<OutboxMessage, "subject" | "meta" | "contactId" | "eventId" | "dedupeKey" | "createdBy" | "nextAttemptAt">>;
 
 /** Queue a message. Returns null when the dedupe key was already used. */
 export async function enqueue(db: Db, message: Enqueue): Promise<string | null> {

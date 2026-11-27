@@ -83,6 +83,10 @@ Links to: account
 | cover_image_url | text |  |  |
 | location_url | text |  |  |
 | require_approval | boolean | yes | false |
+| host_name | text |  |  |
+| confirmation_note | text |  |  |
+| reminders | boolean | yes | true |
+| feedback_email | boolean | yes | false |
 
 ## event_session
 

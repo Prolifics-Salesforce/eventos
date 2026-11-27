@@ -1,9 +1,10 @@
-import { and, count, eq, isNull, ne } from "drizzle-orm";
+import { and, count, eq, isNull, like, ne, sql } from "drizzle-orm";
 import { z } from "zod";
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { sysPolicy, sysProperty, sysRole, sysSession, sysUser, sysUserRole, webhook } from "@/db/schema";
 import { hashPassword, verifyPassword } from "@/platform/auth";
 import { HUMAN_ROLES } from "@/platform/permissions";
+import { appUrl } from "@/platform/properties";
 import { createUser } from "@/platform/seed";
 import { defineTool, getTool, ToolError } from "@/platform/tools";
 
@@ -173,5 +174,50 @@ export const userSetActive = defineTool({
     }
     await ctx.db.update(sysUser).set({ active }).where(eq(sysUser.id, userId));
     return { userId, active };
+  },
+});
+
+const RESET_MINUTES = 60;
+const resetKey = (token: string) => `reset:${createHash("sha256").update(token).digest("hex")}`;
+
+export const accountRequestReset = defineTool({
+  name: "account.request_reset",
+  description: "Email a team member a link to choose a new password. Says the same whether or not the email belongs to anyone, so it cannot be used to find out who is on the team.",
+  permission: "account.reset",
+  risk: "write",
+  redact: ["email"],
+  input: z.object({ email: z.string().trim().toLowerCase().max(200) }),
+  async handler(ctx, { email }) {
+    const [who] = await ctx.db.select().from(sysUser).where(and(eq(sysUser.email, email), eq(sysUser.kind, "human"), eq(sysUser.active, true)));
+    if (who) {
+      // A new link replaces any earlier one for the same person.
+      await ctx.db.delete(sysProperty).where(and(like(sysProperty.key, "reset:%"), sql`${sysProperty.value}::jsonb->>'userId' = ${who.id}`));
+      const token = randomBytes(32).toString("base64url");
+      await ctx.db.insert(sysProperty).values({ key: resetKey(token), value: JSON.stringify({ userId: who.id, until: Date.now() + RESET_MINUTES * 60_000 }) });
+      await ctx.enqueue({
+        channel: "email", recipient: who.email!, subject: "Choose a new password",
+        body: [`Hi ${who.name.split(" ")[0]},`, "", "Someone asked to reset the password for your account. If it was you, choose a new one here:", `${appUrl()}/reset/${token}`, "", `The link works once, for ${RESET_MINUTES} minutes. If it was not you, ignore this email and nothing changes.`].join("\n"),
+      });
+    }
+    return { sent: true };
+  },
+});
+
+export const accountResetPassword = defineTool({
+  name: "account.reset_password",
+  description: "Set a new password using the link from a reset email. The link works once; using it signs the person out everywhere.",
+  permission: "account.reset",
+  risk: "write",
+  redact: ["token", "password"],
+  input: z.object({ token: z.string().min(20).max(200), password: z.string().min(10).max(200) }),
+  async handler(ctx, { token, password }) {
+    const [row] = await ctx.db.delete(sysProperty).where(eq(sysProperty.key, resetKey(token))).returning({ value: sysProperty.value });
+    const claim = row ? (JSON.parse(row.value) as { userId: string; until: number }) : null;
+    if (!claim || claim.until < Date.now()) throw new ToolError("bad_link", "That link has expired or was already used. Ask for a new one.");
+    const [who] = await ctx.db.select({ id: sysUser.id }).from(sysUser).where(and(eq(sysUser.id, claim.userId), eq(sysUser.kind, "human"), eq(sysUser.active, true)));
+    if (!who) throw new ToolError("bad_link", "That link has expired or was already used. Ask for a new one.");
+    await ctx.db.update(sysUser).set({ passwordHash: hashPassword(password) }).where(eq(sysUser.id, who.id));
+    await ctx.db.delete(sysSession).where(eq(sysSession.userId, who.id));
+    return { reset: true };
   },
 });

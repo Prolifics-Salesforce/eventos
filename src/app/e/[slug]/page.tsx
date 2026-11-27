@@ -32,6 +32,7 @@ export default async function PublicEvent({ params, searchParams }: { params: Pr
         {e.coverImageUrl && <img src={e.coverImageUrl} alt="" style={{ width: "100%", aspectRatio: "16 / 9", objectFit: "cover", borderRadius: 14, marginBottom: 18, display: "block" }} />}
         <span className="kind">{kind}</span>
         <h1>{e.name}</h1>
+        {e.hostName && <p className="small muted" style={{ margin: "6px 0 0" }}>Hosted by {e.hostName}</p>}
         <div className="when">
           <div className="datebox" style={{ textAlign: "left" }}>
             {e.startsAt ? <><b>{new Intl.DateTimeFormat("en-IN", { day: "numeric", timeZone: e.timezone }).format(e.startsAt)}</b><span>{new Intl.DateTimeFormat("en-IN", { month: "short", year: "numeric", timeZone: e.timezone }).format(e.startsAt)}</span></> : <span>Date to be announced</span>}

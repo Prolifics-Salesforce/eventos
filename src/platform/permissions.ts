@@ -6,6 +6,8 @@ export const PERMISSIONS = [
   "agent.run", "admin.manage", "account.self", "consent.write",
   /** Seeing things, where seeing is not for everyone: budgets and pipeline, and the ledger of who did what. */
   "insights.read", "audit.read",
+  /** Asking for, and using, a password-reset link. Held only by the public site, which acts for someone not signed in. */
+  "account.reset",
 ] as const;
 export type Permission = (typeof PERMISSIONS)[number];
 
@@ -15,11 +17,11 @@ const without = (...drop: Permission[]) => all.filter((p) => !drop.includes(p));
 /** Roles created at start-up. Agents get roles exactly as people do. */
 export const DEFAULT_ROLES: Record<string, Permission[]> = {
   admin: all,
-  organiser: without("admin.manage"),
+  organiser: without("admin.manage", "account.reset"),
   sales: ["event.read", "contact.read", "contact.write", "lead.write", "note.write", "account.self", "insights.read"],
   desk: ["event.read", "contact.read", "checkin.write", "account.self"],
   /** The public registration page acts as this service account. */
-  public_site: ["registration.write", "consent.write"],
+  public_site: ["registration.write", "consent.write", "account.reset"],
   /** Built-in rules (confirmations, starting agent runs) act as this one. */
   system: ["message.send", "task.write", "agent.run"],
   agent_builder: ["event.read", "event.write", "event.publish", "session.write", "task.write", "note.write"],

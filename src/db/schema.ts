@@ -267,6 +267,14 @@ export const event = pgTable("event", {
   locationUrl: text("location_url"),
   /** When true, a guest who registers waits as "pending" until someone on the team approves them. */
   requireApproval: boolean("require_approval").notNull().default(false),
+  /** Who is putting the event on, as guests should read it. Shown on the public page. */
+  hostName: text("host_name"),
+  /** A few lines from the organisers, added to every confirmation email. */
+  confirmationNote: text("confirmation_note"),
+  /** Remind guests holding a place a day before and an hour before. */
+  reminders: boolean("reminders").notNull().default(true),
+  /** After the event, email everyone who attended and ask how it was. */
+  feedbackEmail: boolean("feedback_email").notNull().default(false),
 });
 
 /** What an event is expected to cost and what it did cost, line by line. Whole currency units. */
