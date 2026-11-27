@@ -16,7 +16,7 @@ npm test            # the Phase 0 exit gate, against an embedded Postgres
 With no `DATABASE_URL`, data lives in an embedded Postgres under `./.data`.
 For a real instance, `docker compose up -d db` and set `DATABASE_URL`.
 
-Call  tools:
+Call tools:
 
 ```
 curl -X POST localhost:3000/api/tools/event.create \
