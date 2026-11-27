@@ -14,10 +14,11 @@ An honest list of what this build does not do, as of 19 November 2026. Read it b
 ## Missing features
 
 - Contacts and Companies screens (the data exists; no screen shows a person's history across events).
-- Editing an event's name, date or venue after creation; editing or removing sessions, speakers and guest details.
+- Editing or removing sessions and speakers; editing a guest's details.
+- Uploading a cover picture: the public page shows one from a web address, but there is no file storage yet.
 - Search, filters and paging on guest and lead tables.
-- Calendar invitations in emails; branded HTML emails; bounce handling.
-- Walk-in registration at the desk, undo check-in, QR scanning, offline mode.
+- Calendar invitations attached to emails (the confirmation links to a calendar file instead); branded HTML emails; editable confirmation wording; bounce handling.
+- QR scanning at the desk, offline mode.
 - Business-card scanning; native Salesforce or HubSpot sync (signed webhooks are the bridge).
 - WhatsApp delivery (queueing and opt-in are enforced; no provider is connected).
 - Single sign-on, two-step sign-in, password reset by email link, event approvals.

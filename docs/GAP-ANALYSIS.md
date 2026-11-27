@@ -228,19 +228,22 @@ weeks.
 
 ### Phase 1 — Luma parity for the core flow
 
-| Item | Size |
-| --- | --- |
-| Edit event: name, dates, timezone, slug; cancel event with a notice to guests | S |
-| Public event page: cover image, rich description, location with map link, host names (needs file storage) | M |
-| More question types: phone, company, website, social profile, terms | S |
-| Require-approval registration (new `pending` status, approve / decline in the guest table) | M |
-| Guest table: search, filters, paging, bulk actions, edit a guest | M |
-| Calendar invite (.ics) on confirmation; editable confirmation wording | S |
-| HTML email template with the organisation's name and colour | M |
-| Reminders: 1 day and 1 hour, switchable per event; scheduled messages | M |
-| Post-event feedback email, scheduled | S |
-| Desk: camera QR scan, undo check-in, walk-in registration | M |
-| Team: change role, deactivate; password reset by email | S |
+| Item | Size | State on branch `phase-1` |
+| --- | --- | --- |
+| Edit event: name, dates, slug; cancel event with a notice to guests | S | Done |
+| Public event page: description, map link, cover picture from a web address | M | Done |
+| Cover picture upload (needs file storage) and host names on the page | M | Not done |
+| More question types: phone, company, website, social profile, terms | S | Done |
+| Require-approval registration (`pending` status, approve / turn down in the guest table) | M | Done |
+| Calendar file (.ics) linked from the confirmation email, the public page and the pass | S | Done |
+| Desk: undo check-in, walk-in registration | M | Done |
+| Team: change role, switch an account off and on | S | Done |
+| Guest table: search, filters, paging, bulk actions, edit a guest | M | Not done |
+| Editable confirmation wording; HTML email template | M | Not done |
+| Reminders: 1 day and 1 hour, switchable per event; scheduled messages | M | Not done |
+| Post-event feedback email, scheduled | S | Not done |
+| Desk: camera QR scan | M | Not done |
+| Password reset by email | S | Not done |
 
 ### Phase 2 — Growth and money
 

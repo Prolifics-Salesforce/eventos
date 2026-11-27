@@ -6,7 +6,7 @@ import { can, requirePrincipal } from "@/lib/session";
 import { Denied } from "@/components/denied";
 
 import { contact, event, registration } from "@/db/schema";
-import { checkInAction } from "@/app/actions";
+import { checkInAction, undoCheckInAction, walkInAction } from "@/app/actions";
 
 export default async function Desk({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ q?: string; notice?: string; ok?: string }> }) {
   const { id } = await params;
@@ -36,10 +36,25 @@ export default async function Desk({ params, searchParams }: { params: Promise<{
         <input name="q" defaultValue={term} placeholder="Name, email or pass number" autoFocus style={{ flex: 1 }} />
         <button type="submit">Find</button>
       </form>
+      <details className="add" style={{ marginBottom: 12 }}>
+        <summary>+ Someone not on the list</summary>
+        <form action={walkInAction} className="stack">
+          <input type="hidden" name="eventId" value={id} /><input type="hidden" name="returnTo" value={`/events/${id}/desk`} />
+          <label>First name<input name="firstName" required autoComplete="off" /></label>
+          <label>Last name<input name="lastName" autoComplete="off" /></label>
+          <label>Email<input name="email" type="email" required autoComplete="off" inputMode="email" /></label>
+          <button type="submit">Register and check in</button>
+        </form>
+      </details>
       {guests.length === 0 ? <div className="empty">{term ? "Nobody matches that." : "Nobody is registered yet."}</div> : guests.map(({ r, c }) => (
         <div className="guest" key={r.id}>
           <div><b>{c.firstName} {c.lastName}</b><span className="small muted">{c.email}</span></div>
-          {r.checkedInAt ? <span className="pill attended">In, PIN {r.pin}</span> : (
+          {r.checkedInAt ? (
+            <form action={undoCheckInAction} className="actions">
+              <input type="hidden" name="eventId" value={id} /><input type="hidden" name="registrationId" value={r.id} /><input type="hidden" name="returnTo" value={back} />
+              <span className="pill attended">In, PIN {r.pin}</span><button type="submit" className="link">Undo</button>
+            </form>
+          ) : r.status === "pending" ? <span className="pill held">Not approved yet</span> : r.status === "cancelled" || r.status === "declined" ? <span className="pill">{r.status}</span> : (
             <form action={checkInAction}>
               <input type="hidden" name="eventId" value={id} /><input type="hidden" name="registrationId" value={r.id} /><input type="hidden" name="returnTo" value={back} />
               <button type="submit">Check in</button>

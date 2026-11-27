@@ -1,4 +1,4 @@
-import { and, count, eq, isNotNull, notInArray } from "drizzle-orm";
+import { and, count, eq, inArray, ne, notInArray } from "drizzle-orm";
 import { z } from "zod";
 import { contact, event, eventSession, formField, lead, registration, sessionSpeaker, task } from "@/db/schema";
 import type { Db } from "@/db/client";
@@ -7,10 +7,13 @@ import { eventInsights } from "@/lib/insights";
 import { DEFAULT_CURRENCY, DEFAULT_TIMEZONE, isCurrency, isTimeZone } from "@/lib/when";
 import { nextNumber } from "@/platform/numbers";
 import { defineTool, ToolError } from "@/platform/tools";
+import { withUnsubscribe } from "./messages";
 
 const slugify = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 60);
 const when = z.iso.datetime({ offset: true }).optional().describe("ISO 8601 with offset, e.g. 2027-02-12T09:00:00+05:30");
-const toDate = (s?: string) => (s ? new Date(s) : null);
+const toDate = (s?: string | null) => (s ? new Date(s) : null);
+const link = z.url().max(500).refine((u) => u.startsWith("https://"), "Use an https address");
+const slugText = z.string().trim().toLowerCase().min(3).max(60).regex(/^[a-z0-9]+(-[a-z0-9]+)*$/, "Use lower-case letters, numbers and single hyphens");
 const zone = z.string().max(64).refine(isTimeZone, "Use a time zone name such as Asia/Kolkata or Europe/London");
 const currencyCode = z.string().trim().toUpperCase().refine(isCurrency, "Use a three-letter currency code such as INR, USD or EUR");
 
@@ -67,12 +70,14 @@ export const eventSetStatus = defineTool({
   risk: "external",
   input: z.object({ eventId: z.uuid(), status: z.enum(["draft", "live", "closed", "archived"]) }),
   async handler(ctx, { eventId, status }) {
+    const [now] = await ctx.db.select({ status: event.status }).from(event).where(eq(event.id, eventId));
+    if (!now) throw new ToolError("not_found", "No such event");
+    if (now.status === "cancelled" && status !== "draft") throw new ToolError("cancelled", "This event was cancelled. Move it back to draft before taking it live again.");
     const [row] = await ctx.db
       .update(event)
       .set({ status, updatedBy: ctx.principal.id, updatedAt: new Date() })
       .where(eq(event.id, eventId))
       .returning({ id: event.id, status: event.status });
-    if (!row) throw new ToolError("not_found", "No such event");
     await ctx.emit("event.status_changed", { eventId, status });
     return row;
   },
@@ -126,7 +131,7 @@ export const sessionAddSpeaker = defineTool({
 
 export const eventPublicInfo = defineTool({
   name: "event.public_info",
-  description: "What the public may know about an event: name, time, venue and, for conferences, the agenda. Nothing internal.",
+  description: "What the public may know about an event: name, description, time, venue and, for conferences, the agenda. Nothing internal.",
   permission: "event.read",
   risk: "read",
   input: z.object({ eventId: z.uuid() }),
@@ -138,7 +143,7 @@ export const eventPublicInfo = defineTool({
       .from(eventSession).where(eq(eventSession.eventId, eventId));
     const speakers = await ctx.db.select({ sessionTitle: eventSession.title, firstName: contact.firstName, lastName: contact.lastName, title: contact.title })
       .from(sessionSpeaker).innerJoin(eventSession, eq(eventSession.id, sessionSpeaker.sessionId)).innerJoin(contact, eq(contact.id, sessionSpeaker.contactId)).where(eq(eventSession.eventId, eventId));
-    return { name: row.name, kind: row.kind, status: row.status, startsAt: row.startsAt, endsAt: row.endsAt, timezone: row.timezone, venue: row.venue, registrationOpen: row.status === "live", sessions, speakers };
+    return { name: row.name, description: row.description, kind: row.kind, status: row.status, startsAt: row.startsAt, endsAt: row.endsAt, timezone: row.timezone, venue: row.venue, mapLink: row.locationUrl, registrationOpen: row.status === "live", needsApproval: row.requireApproval, sessions, speakers };
   },
 });
 
@@ -151,7 +156,7 @@ export const formAddField = defineTool({
     eventId: z.uuid(),
     purpose: z.enum(["registration", "lead"]),
     label: z.string().trim().min(2).max(120),
-    type: z.enum(["text", "select", "checkbox"]).default("text"),
+    type: z.enum(["text", "select", "checkbox", "phone", "company", "website", "social", "terms"]).default("text").describe("terms is a statement the guest must tick to agree to; put the statement in the label"),
     options: z.array(z.string().trim().min(1).max(80)).max(30).default([]),
     required: z.boolean().default(false),
   }),
@@ -163,7 +168,7 @@ export const formAddField = defineTool({
     for (let n = 2; existing.some((f) => f.key === key); n++) key = `${base}_${n}`;
     const [row] = await ctx.db
       .insert(formField)
-      .values({ ...input, options: input.type === "select" ? input.options : [], key, position: existing.length, createdBy: ctx.principal.id, updatedBy: ctx.principal.id })
+      .values({ ...input, required: input.type === "terms" ? true : input.required, options: input.type === "select" ? input.options : [], key, position: existing.length, createdBy: ctx.principal.id, updatedBy: ctx.principal.id })
       .returning({ id: formField.id, key: formField.key });
     return row;
   },
@@ -188,18 +193,25 @@ export async function readAnswers(db: Db, eventId: string, purpose: "registratio
   const answers: Record<string, string | boolean> = {};
   for (const field of fields) {
     const value = raw[field.key];
-    if (field.type === "checkbox") {
+    if (field.type === "checkbox" || field.type === "terms") {
       const ticked = value === true || value === "on" || value === "true";
-      if (field.required && !ticked) throw new ToolError("missing_answer", `Please tick: ${field.label}`);
+      // Terms are always required: registering without agreeing is not offered.
+      if ((field.required || field.type === "terms") && !ticked) throw new ToolError("missing_answer", field.type === "terms" ? `Please agree to: ${field.label}` : `Please tick: ${field.label}`);
       answers[field.key] = ticked;
       continue;
     }
-    const text = typeof value === "string" ? value.trim().slice(0, 2000) : "";
+    let text = typeof value === "string" ? value.trim().slice(0, 2000) : "";
     if (!text) {
       if (field.required) throw new ToolError("missing_answer", `Please answer: ${field.label}`);
       continue;
     }
     if (field.type === "select" && !field.options.includes(text)) throw new ToolError("bad_answer", `Choose one of the options for: ${field.label}`);
+    if (field.type === "phone" && !/^\+?[0-9][0-9 ().-]{6,19}$/.test(text)) throw new ToolError("bad_answer", `Enter a phone number for: ${field.label}`);
+    if (field.type === "website") {
+      // People type "acme.com"; keep it as a full address, and refuse anything that is not one.
+      if (!/^https?:\/\//i.test(text)) text = `https://${text}`;
+      if (!z.url().safeParse(text).success || !/^https?:\/\/[^\s/]+\.[^\s/]+/i.test(text)) throw new ToolError("bad_answer", `Enter a web address for: ${field.label}`);
+    }
     answers[field.key] = text;
   }
   return answers;
@@ -207,19 +219,36 @@ export async function readAnswers(db: Db, eventId: string, purpose: "registratio
 
 export const eventUpdate = defineTool({
   name: "event.update",
-  description: "Change an event's details: venue, brief, capacity, targets, time zone and currency. Leave a field out to keep it; send null to clear a number. Changing the time zone changes how times are shown, not the moments themselves.",
+  description: "Change an event's details: name, dates, venue, public description, cover image, map link, address of the public page, brief, capacity, targets, whether guests need approval, time zone and currency. Leave a field out to keep it; send null to clear one. Changing the time zone changes how times are shown, not the moments themselves. Changing the address breaks links already sent.",
   permission: "event.write",
   risk: "write",
   input: z.object({
     eventId: z.uuid(),
-    venue: z.string().max(200).optional(), brief: z.string().max(4000).optional(),
+    name: z.string().trim().min(2).max(120).optional(),
+    startsAt: when.nullable(), endsAt: when.nullable(),
+    slug: slugText.optional().describe("The last part of the public page's address"),
+    venue: z.string().max(200).nullable().optional(), brief: z.string().max(4000).nullable().optional(),
+    description: z.string().max(10000).nullable().optional().describe("What guests read on the public page. Plain text; blank lines make paragraphs"),
+    coverImageUrl: link.nullable().optional(), locationUrl: link.nullable().optional(),
+    requireApproval: z.boolean().optional().describe("When true, guests who register wait until someone approves them"),
     capacity: z.number().int().positive().nullable().optional(),
     targetRegistrations: z.number().int().positive().nullable().optional(),
     targetLeads: z.number().int().positive().nullable().optional(),
     timezone: zone.optional(), currency: currencyCode.optional(),
   }),
-  async handler(ctx, { eventId, ...changes }) {
-    const [row] = await ctx.db.update(event).set({ ...changes, updatedBy: ctx.principal.id, updatedAt: new Date() }).where(eq(event.id, eventId)).returning({ id: event.id, capacity: event.capacity, timezone: event.timezone, currency: event.currency });
+  async handler(ctx, { eventId, startsAt, endsAt, ...changes }) {
+    if (changes.slug) {
+      const [taken] = await ctx.db.select({ id: event.id }).from(event).where(and(eq(event.slug, changes.slug), ne(event.id, eventId)));
+      if (taken) throw new ToolError("slug_taken", "Another event already uses that address");
+    }
+    const dates = { ...(startsAt !== undefined ? { startsAt: toDate(startsAt) } : {}), ...(endsAt !== undefined ? { endsAt: toDate(endsAt) } : {}) };
+    const [before] = await ctx.db.select({ startsAt: event.startsAt, endsAt: event.endsAt }).from(event).where(eq(event.id, eventId));
+    if (!before) throw new ToolError("not_found", "No such event");
+    const start = dates.startsAt !== undefined ? dates.startsAt : before.startsAt;
+    const end = dates.endsAt !== undefined ? dates.endsAt : before.endsAt;
+    if (start && end && end.getTime() <= start.getTime()) throw new ToolError("bad_dates", "The event must end after it starts");
+    const [row] = await ctx.db.update(event).set({ ...changes, ...dates, updatedBy: ctx.principal.id, updatedAt: new Date() }).where(eq(event.id, eventId))
+      .returning({ id: event.id, name: event.name, slug: event.slug, capacity: event.capacity, timezone: event.timezone, currency: event.currency });
     if (!row) throw new ToolError("not_found", "No such event");
     await ctx.emit("event.updated", { eventId });
     return row;
@@ -228,7 +257,7 @@ export const eventUpdate = defineTool({
 
 export const eventClone = defineTool({
   name: "event.clone",
-  description: "Start a new draft from an existing event: same type, venue, brief, capacity, targets, questions, planned budget and session outline. Guests, leads and messages are not copied.",
+  description: "Start a new draft from an existing event: same type, venue, public description and picture, brief, capacity, targets, questions, planned budget and session outline. Guests, leads and messages are not copied.",
   permission: "event.write",
   risk: "write",
   input: z.object({ eventId: z.uuid(), name: z.string().min(2).max(120), startsAt: when }),
@@ -243,6 +272,7 @@ export const eventClone = defineTool({
     const [copy] = await ctx.db.insert(event).values({
       number, name, slug: `${slugify(name)}-${number.slice(-4)}`, kind: src.kind, timezone: src.timezone, venue: src.venue, brief: src.brief,
       capacity: src.capacity, targetRegistrations: src.targetRegistrations, targetLeads: src.targetLeads, currency: src.currency,
+      description: src.description, coverImageUrl: src.coverImageUrl, locationUrl: src.locationUrl, requireApproval: src.requireApproval,
       startsAt: start, endsAt: moved(src.endsAt), ...stamp,
     }).returning();
     const fields = await ctx.db.select().from(formField).where(eq(formField.eventId, eventId));
@@ -288,5 +318,38 @@ export const budgetRemoveItem = defineTool({
     const rows = await ctx.db.delete(budgetItem).where(eq(budgetItem.id, itemId)).returning({ id: budgetItem.id });
     if (rows.length === 0) throw new ToolError("not_found", "No such budget line");
     return { removed: true };
+  },
+});
+
+export const eventCancel = defineTool({
+  name: "event.cancel",
+  description: "Call an event off. Registration shuts, the public page says it is cancelled, and everyone invited, registered or waiting is emailed once. An optional note from the organisers is added to the email.",
+  permission: "event.publish",
+  risk: "external",
+  input: z.object({ eventId: z.uuid(), message: z.string().trim().max(2000).optional().describe("A sentence or two for guests, e.g. what happens next") }),
+  async handler(ctx, { eventId, message }) {
+    const [row] = await ctx.db.select().from(event).where(eq(event.id, eventId));
+    if (!row) throw new ToolError("not_found", "No such event");
+    if (row.status === "cancelled") return { cancelled: true, told: 0, already: true };
+    await ctx.db.update(event).set({ status: "cancelled", updatedBy: ctx.principal.id, updatedAt: new Date() }).where(eq(event.id, eventId));
+    // A draft was never public, so there is nobody to tell.
+    const people = row.status === "draft" ? [] : await ctx.db
+      .select({ r: registration, c: contact })
+      .from(registration)
+      .innerJoin(contact, eq(contact.id, registration.contactId))
+      .where(and(eq(registration.eventId, eventId), inArray(registration.status, ["invited", "pending", "registered", "waitlisted"])));
+    let told = 0;
+    for (const { r, c } of people) {
+      if (c.emailOptOutAt) continue;
+      const lines = [`Hi ${c.firstName},`, "", `${row.name} has been cancelled.`, ...(message ? ["", message] : []), "", "We are sorry for the change of plan."];
+      const mail = await withUnsubscribe(ctx.db, c.id, lines.join("\n"));
+      const id = await ctx.enqueue({
+        channel: "email", recipient: c.email, subject: `Cancelled: ${row.name}`, body: mail.body, meta: { unsubscribeUrl: mail.unsubscribeUrl },
+        contactId: c.id, eventId, dedupeKey: `event-cancelled:${eventId}:${r.id}`,
+      });
+      if (id) told++;
+    }
+    await ctx.emit("event.cancelled", { eventId, told });
+    return { cancelled: true, told, already: false };
   },
 });

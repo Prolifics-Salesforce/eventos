@@ -27,13 +27,13 @@ export default async function Pass({ params, searchParams }: { params: Promise<{
   if (!row) notFound();
   const { r, c, e } = row;
   const state = r.checkedInAt ? "attended" : r.status;
-  const label = { invited: "You're invited", registered: "Your pass", waitlisted: "On the waitlist", declined: "You declined", cancelled: "Cancelled", attended: "Checked in", no_show: "Your pass" }[state];
+  const label = { invited: "You're invited", pending: "Request received", registered: "Your pass", waitlisted: "On the waitlist", declined: "You declined", cancelled: "Cancelled", attended: "Checked in", no_show: "Your pass" }[state];
   const open = e.status === "live";
   const [fields, [answered]] = await Promise.all([
     state === "invited" || state === "declined" || state === "cancelled" ? db.select().from(formField).where(and(eq(formField.eventId, e.id), eq(formField.purpose, "registration"))) : [],
     db.select().from(surveyResponse).where(eq(surveyResponse.registrationId, id)),
   ]);
-  const qr = state === "registered" || state === "attended" ? await QRCode.toString(r.number, { type: "svg", margin: 0, errorCorrectionLevel: "M" }) : null;
+  const qr = e.status !== "cancelled" && (state === "registered" || state === "attended") ? await QRCode.toString(r.number, { type: "svg", margin: 0, errorCorrectionLevel: "M" }) : null;
   const key = <input type="hidden" name="registrationId" value={r.id} />;
   return (
     <div className="center">
@@ -46,11 +46,19 @@ export default async function Pass({ params, searchParams }: { params: Promise<{
         <div className="tear" />
         <div className="stub">
           {notice && <div className="notice">{notice}</div>}
+          {e.status === "cancelled" && <div className="notice">This event has been cancelled.</div>}
+          {state === "pending" && (
+            <>
+              <p style={{ margin: "0 0 4px" }}>The organisers approve each guest. We will email you as soon as they have decided, and this page will turn into your pass.</p>
+              {open && <form action={guestCancelAction}>{key}<button type="submit" className="quiet">Withdraw my request</button></form>}
+            </>
+          )}
           {qr && <><div dangerouslySetInnerHTML={{ __html: qr }} /><div className="reg">{r.number}</div></>}
 
-          {state === "registered" && (
+          {state === "registered" && e.status !== "cancelled" && (
             <>
               <div className="small" style={{ marginTop: 10, opacity: 0.7 }}>Show this at the door.</div>
+              {e.startsAt && <a href={`/e/${e.slug}/calendar.ics`} className="small" style={{ display: "block", margin: "8px 0" }}>Add to your calendar</a>}
               {open && <form action={guestCancelAction}>{key}<button type="submit" className="quiet">I can no longer come</button></form>}
             </>
           )}

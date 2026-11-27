@@ -8,6 +8,7 @@ export function FieldInputs({ fields }: { fields: Field[] }) {
     <>
       {[...fields].sort((a, b) => a.position - b.position).map((f) => {
         const name = `answer.${f.key}`;
+        if (f.type === "terms") return <label className="check" key={f.id}><input type="checkbox" name={name} required /> {f.label}</label>;
         if (f.type === "checkbox") return <label className="check" key={f.id}><input type="checkbox" name={name} required={f.required} /> {f.label}</label>;
         if (f.type === "select") {
           return (
@@ -16,7 +17,8 @@ export function FieldInputs({ fields }: { fields: Field[] }) {
             </label>
           );
         }
-        return <label key={f.id}>{f.label}{f.required ? "" : " (optional)"}<input name={name} required={f.required} maxLength={2000} /></label>;
+        const kind = { phone: { type: "tel", autoComplete: "tel", placeholder: "+919876543210" }, company: { autoComplete: "organization" }, website: { inputMode: "url" as const, placeholder: "example.com" }, social: { placeholder: "linkedin.com/in/…" } }[f.type as string] ?? {};
+        return <label key={f.id}>{f.label}{f.required ? "" : " (optional)"}<input name={name} required={f.required} maxLength={2000} {...kind} /></label>;
       })}
     </>
   );

@@ -45,10 +45,10 @@ curl -X POST localhost:3000/api/tools/event.create \
 
 ## What works today
 
-- **Events:** booth, field and conference events; draft, live, closed, archived; copy an event's setup to start the next one.
-- **Guest lists:** paste a list, send invitations with a personal reply link, public registration at `/e/<slug>` with your own questions and the agenda, places and an automatic waitlist.
+- **Events:** booth, field and conference events; draft, live, closed, archived, cancelled; edit every detail after creation; copy an event's setup to start the next one; cancel with a notice to every guest.
+- **Guest lists:** paste a list, send invitations with a personal reply link, public registration at `/e/<slug>` with a description, picture, map link, your own questions and the agenda, places and an automatic waitlist, and, if you choose, approval of each guest before they get a place.
 - **The guest's page:** one link that is the invitation reply, the pass with QR, the waitlist notice, a way to cancel, and the post-event question.
-- **On the day:** phone-first door desk and booth lead capture, check-in with PIN, printable badges.
+- **On the day:** phone-first door desk with walk-ins and undo, booth lead capture, check-in with PIN, printable badges.
 - **Conferences:** sessions and speakers, shown on the public page.
 - **Messaging:** messages to a segment of guests, a confirmation on registration, a reminder the day before. Every email carries an unsubscribe link. Email goes out over SMTP once `SMTP_URL` is set.
 - **Insights:** per event and across the programme: the funnel from list to lead, budget planned and actual, cost per attendee and per lead, pipeline entered by sales, return, and guest score.

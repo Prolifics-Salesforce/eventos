@@ -213,7 +213,8 @@ export async function registerGuestAction(form: FormData) {
     phone: text(form, "phone"), whatsappOptIn: form.get("whatsappOptIn") === "on", answers: answersFrom(form),
   });
   deliverSoon();
-  redirect(result.status === "ok" ? `${path}?done=${result.output.status === "waitlisted" ? "wait" : "1"}` : `${path}?notice=${encodeURIComponent(explain(result))}`);
+  const outcome = result.status === "ok" ? ({ waitlisted: "wait", pending: "pending" } as Record<string, string>)[result.output.status] ?? "1" : "";
+  redirect(result.status === "ok" ? `${path}?done=${outcome}` : `${path}?notice=${encodeURIComponent(explain(result))}`);
 }
 
 export async function addFieldAction(form: FormData) {
@@ -284,6 +285,7 @@ export async function updateEventAction(form: FormData) {
   const eventId = text(form, "eventId")!;
   done(returnTo(form, `/events/${eventId}`), await invoke(await getDb(), principal, "event.update", {
     eventId, capacity: num(form, "capacity"), targetRegistrations: num(form, "targetRegistrations"), targetLeads: num(form, "targetLeads"),
+    requireApproval: form.get("requireApproval") === "on",
   }), "Saved");
 }
 
@@ -416,4 +418,58 @@ export async function erasePersonAction(form: FormData) {
   const principal = await requirePrincipal();
   const result = await invoke<{ registrations: number; leads: number; messages: number }>(await getDb(), principal, "contact.erase", { email: text(form, "email"), confirm: form.get("confirm") === "on" });
   done("/settings", result, result.status === "ok" ? `Removed, with ${result.output.registrations} registration(s), ${result.output.leads} lead(s) and ${result.output.messages} message(s).` : undefined);
+}
+
+/** The Details form on an event's Setup tab. An emptied box clears that detail; name and address cannot be emptied. */
+export async function updateDetailsAction(form: FormData) {
+  const principal = await requirePrincipal();
+  const eventId = text(form, "eventId")!;
+  const timezone = text(form, "timezone") ?? DEFAULT_TIMEZONE;
+  const when = (key: string) => { const v = text(form, key); return v ? zonedToIso(v, timezone) : null; };
+  done(returnTo(form, `/events/${eventId}`), await invoke(await getDb(), principal, "event.update", {
+    eventId, name: text(form, "name"), slug: text(form, "slug"), startsAt: when("startsAt"), endsAt: when("endsAt"),
+    venue: text(form, "venue") ?? null, locationUrl: text(form, "locationUrl") ?? null, coverImageUrl: text(form, "coverImageUrl") ?? null,
+    description: text(form, "description")?.replace(/\r\n/g, "\n") ?? null, brief: text(form, "brief")?.replace(/\r\n/g, "\n") ?? null,
+  }), "Saved");
+}
+
+export async function cancelEventAction(form: FormData) {
+  const principal = await requirePrincipal();
+  const eventId = text(form, "eventId")!;
+  const back = returnTo(form, `/events/${eventId}`);
+  if (form.get("confirm") !== "on") redirect(`${back}${back.includes("?") ? "&" : "?"}notice=${encodeURIComponent("Tick the box to confirm the cancellation.")}`);
+  const result = await invoke<{ told: number }>(await getDb(), principal, "event.cancel", { eventId, message: text(form, "message") });
+  done(back, result, result.status === "ok" ? `The event is cancelled. ${result.output.told} guest(s) are being emailed.` : undefined);
+}
+
+export async function decideGuestAction(form: FormData) {
+  const principal = await requirePrincipal();
+  const approve = text(form, "decision") === "approve";
+  const result = await invoke<{ status: string }>(await getDb(), principal, approve ? "registration.approve" : "registration.decline", { registrationId: text(form, "registrationId") });
+  done(returnTo(form, `/events/${text(form, "eventId")}`), result, result.status === "ok" ? (approve ? (result.output.status === "waitlisted" ? "Approved. The event is full, so they are on the waitlist." : "Approved. They have been emailed their pass.") : "Turned down. They have been told.") : undefined);
+}
+
+export async function undoCheckInAction(form: FormData) {
+  const principal = await requirePrincipal();
+  done(returnTo(form, `/events/${text(form, "eventId")}`), await invoke(await getDb(), principal, "registration.undo_check_in", { registrationId: text(form, "registrationId") }), "Check-in taken back");
+}
+
+export async function walkInAction(form: FormData) {
+  const principal = await requirePrincipal();
+  const eventId = text(form, "eventId")!;
+  const result = await invoke<{ pin: string; alreadyCheckedIn: boolean }>(await getDb(), principal, "registration.walk_in", {
+    eventId, email: text(form, "email"), firstName: text(form, "firstName"), lastName: text(form, "lastName"),
+  });
+  done(returnTo(form, `/events/${eventId}/desk`), result, result.status === "ok" ? `${result.output.alreadyCheckedIn ? "Already checked in" : "Checked in"}. PIN ${result.output.pin}` : undefined);
+}
+
+export async function setRoleAction(form: FormData) {
+  const principal = await requirePrincipal();
+  done("/team", await invoke(await getDb(), principal, "user.set_role", { userId: text(form, "userId"), role: text(form, "role") }), "Role changed");
+}
+
+export async function setActiveAction(form: FormData) {
+  const principal = await requirePrincipal();
+  const active = text(form, "active") === "true";
+  done("/team", await invoke(await getDb(), principal, "user.set_active", { userId: text(form, "userId"), active }), active ? "Account switched back on" : "Account switched off. They have been signed out.");
 }

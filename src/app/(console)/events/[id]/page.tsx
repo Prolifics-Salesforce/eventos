@@ -6,11 +6,12 @@ import { budgetItem, contact, event, eventSession, formField, lead, surveyRespon
 import {
   addFieldAction, addGuestAction, addSessionAction, addSpeakerAction, addTaskAction, budgetItemAction, campaignAction, cancelRegistrationAction, captureLeadAction,
   checkInAction, cloneEventAction, importGuestsAction, leadValueAction, removeBudgetAction, removeFieldAction, runAgentAction, setStatusAction, taskStateAction, updateEventAction, updateLocaleAction,
+  cancelEventAction, decideGuestAction, undoCheckInAction, updateDetailsAction,
 } from "@/app/actions";
 import { ago, countdown } from "@/lib/describe";
 import { eventInsights, money } from "@/lib/insights";
 import { can, requirePrincipal } from "@/lib/session";
-import { formatWhen, timeZones } from "@/lib/when";
+import { formatWhen, isoToZonedLocal, timeZones } from "@/lib/when";
 import { Denied } from "@/components/denied";
 
 
@@ -19,7 +20,9 @@ const NEXT_STATUS: Record<EventStatus, { status: EventStatus; label: string }[]>
   live: [{ status: "closed", label: "Close registration" }, { status: "draft", label: "Back to draft" }],
   closed: [{ status: "live", label: "Reopen" }, { status: "archived", label: "Archive" }],
   archived: [{ status: "closed", label: "Unarchive" }],
+  cancelled: [{ status: "draft", label: "Reopen as a draft" }],
 };
+const QUESTION: Record<string, string> = { text: "free text", checkbox: "tick box", phone: "phone number", company: "company name", website: "web address", social: "social profile", terms: "must agree" };
 const KIND = { booth: "Booth", field: "Field event", conference: "Conference" } as const;
 const PROMPTS = {
   Builder: "Plan this event from the brief and tell me what is missing",
@@ -72,7 +75,8 @@ export default async function EventPage({ params, searchParams }: { params: Prom
   const attended = guests.filter((g) => g.r.checkedInAt).length;
   const versus = (have: number, target: number | null) => target == null ? null : <span className={`vs ${have >= target ? "good" : "short"}`}>{have >= target ? "target met" : `${target - have} short of ${target}`}</span>;
   const awaiting = guests.filter((g) => g.r.status === "invited").length;
-  const STATUS: Record<string, string> = { invited: "awaiting reply", registered: "registered", waitlisted: "on the waitlist", declined: "declined", cancelled: "cancelled", attended: "checked in", no_show: "no show" };
+  const toApprove = guests.filter((g) => g.r.status === "pending").length;
+  const STATUS: Record<string, string> = { invited: "awaiting reply", pending: "awaiting approval", registered: "registered", waitlisted: "on the waitlist", declined: "declined", cancelled: "cancelled", attended: "checked in", no_show: "no show" };
   const hot = leads.filter((x) => x.l.band === "hot").length;
   const open = tasks.filter((t) => t.state !== "done" && t.state !== "cancelled");
 
@@ -190,6 +194,7 @@ export default async function EventPage({ params, searchParams }: { params: Prom
             <Link className="button" href={`/events/${e.id}/badges`} target="_blank">Print badges</Link>
             <a className="button" href={`/events/${e.id}/export`}>Export CSV</a>
           </div>
+          {toApprove > 0 && <div className="notice quiet" style={{ borderColor: "var(--amber)", color: "var(--amber)" }}>{toApprove} {toApprove === 1 ? "guest is" : "guests are"} waiting for your approval.</div>}
           {guests.length === 0 ? <div className="empty">Nobody has registered yet. Share the public page from Setup, or add guests here.</div> : (
             <table>
               <thead><tr><th>Guest</th><th>Status</th><th>Came from</th><th>Pass</th><th></th></tr></thead>
@@ -197,10 +202,20 @@ export default async function EventPage({ params, searchParams }: { params: Prom
                 {guests.map(({ r, c }) => (
                   <tr key={r.id}>
                     <td>{c.firstName} {c.lastName}<span className="sub">{c.email}</span></td>
-                    <td><span className={`pill ${r.checkedInAt ? "attended" : r.status === "waitlisted" || r.status === "invited" ? "held" : r.status === "declined" || r.status === "cancelled" ? "" : r.status}`}>{STATUS[r.checkedInAt ? "attended" : r.status]}</span></td>
+                    <td><span className={`pill ${r.checkedInAt ? "attended" : r.status === "waitlisted" || r.status === "invited" || r.status === "pending" ? "held" : r.status === "declined" || r.status === "cancelled" ? "" : r.status}`}>{STATUS[r.checkedInAt ? "attended" : r.status]}</span></td>
                     <td className="muted">{r.source === "web" ? "Public page" : r.source === "staff" ? "Added by staff" : r.source === "import" ? "Guest list" : r.source}</td>
                     <td><Link href={`/e/${e.slug}/pass/${r.id}`} target="_blank">{r.number}</Link>{r.pin && <span className="sub">PIN {r.pin}</span>}</td>
                     <td style={{ textAlign: "right" }}>
+                      {r.status === "pending" && can(me, "registration.write") && (
+                        <form action={decideGuestAction} className="actions" style={{ justifyContent: "flex-end" }}>
+                          {hidden}<input type="hidden" name="registrationId" value={r.id} />
+                          <button className="link" type="submit" name="decision" value="decline">Turn down</button>
+                          <button className="amber" type="submit" name="decision" value="approve">Approve</button>
+                        </form>
+                      )}
+                      {r.checkedInAt && can(me, "checkin.write") && (
+                        <form action={undoCheckInAction}>{hidden}<input type="hidden" name="registrationId" value={r.id} /><button className="link" type="submit">Undo check-in</button></form>
+                      )}
                       {r.status === "registered" && !r.checkedInAt && (
                         <div className="actions" style={{ justifyContent: "flex-end" }}>
                           <form action={cancelRegistrationAction}>{hidden}<input type="hidden" name="registrationId" value={r.id} /><button className="link" type="submit">Cancel</button></form>
@@ -377,7 +392,7 @@ export default async function EventPage({ params, searchParams }: { params: Prom
                 {hidden}
                 <label>Ask it on<select name="purpose" defaultValue="registration"><option value="registration">The registration form</option><option value="lead">The lead capture screen</option></select></label>
                 <label>Question<input name="label" required minLength={2} placeholder="Company" /></label>
-                <label>Answer<select name="type" defaultValue="text"><option value="text">Free text</option><option value="select">Choose one</option><option value="checkbox">Tick box</option></select></label>
+                <label>Answer<select name="type" defaultValue="text"><option value="text">Free text</option><option value="select">Choose one</option><option value="checkbox">Tick box</option><option value="company">Company</option><option value="phone">Phone number</option><option value="website">Web address</option><option value="social">Social profile</option><option value="terms">Terms they must agree to</option></select></label>
                 <label>Choices, separated by commas<input name="options" placeholder="Only for Choose one" /></label>
                 <label className="check"><input type="checkbox" name="required" /> Required</label>
                 <button type="submit">Add question</button>
@@ -387,19 +402,36 @@ export default async function EventPage({ params, searchParams }: { params: Prom
               <div className="feed">{fields.map((f) => (
                 <div key={f.id} style={{ alignItems: "center" }}>
                   <span><span style={{ fontWeight: 500 }}>{f.label}</span>{f.required && <span className="small faint"> (required)</span>}
-                    <span className="small muted" style={{ display: "block" }}>{f.purpose === "lead" ? "Lead capture" : "Registration form"}, {f.type === "select" ? `choose one of ${f.options.join(", ")}` : f.type === "checkbox" ? "tick box" : "free text"}</span></span>
+                    <span className="small muted" style={{ display: "block" }}>{f.purpose === "lead" ? "Lead capture" : "Registration form"}, {f.type === "select" ? `choose one of ${f.options.join(", ")}` : QUESTION[f.type] ?? f.type}</span></span>
                   <form action={removeFieldAction} style={{ marginLeft: "auto" }}>{hidden}<input type="hidden" name="fieldId" value={f.id} /><button className="ghost" type="submit">Remove</button></form>
                 </div>
               ))}</div>
             )}
           </section>
           <section className="section">
+            <h2>Details</h2>
+            <form action={updateDetailsAction} className="stack" style={{ marginBottom: 26 }}>
+              {hidden}<input type="hidden" name="timezone" value={e.timezone} />
+              <label>Name<input name="name" required minLength={2} maxLength={120} defaultValue={e.name} /></label>
+              <div className="row" style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+                <label>Starts<input name="startsAt" type="datetime-local" defaultValue={isoToZonedLocal(e.startsAt, e.timezone)} /></label>
+                <label>Ends<input name="endsAt" type="datetime-local" defaultValue={isoToZonedLocal(e.endsAt, e.timezone)} /></label>
+              </div>
+              <label>Venue<input name="venue" maxLength={200} defaultValue={e.venue ?? ""} /></label>
+              <label>Link to a map of the venue (optional)<input name="locationUrl" type="url" placeholder="https://maps.app.goo.gl/…" defaultValue={e.locationUrl ?? ""} /></label>
+              <label>What guests read on the public page<textarea name="description" rows={6} maxLength={10000} defaultValue={e.description ?? ""} placeholder="What the event is, who it is for and what will happen. A blank line starts a new paragraph." /></label>
+              <label>Cover picture, as a web address (optional)<input name="coverImageUrl" type="url" placeholder="https://…/cover.jpg" defaultValue={e.coverImageUrl ?? ""} /></label>
+              <label>Brief for the team and the agents. Never shown to guests.<textarea name="brief" rows={3} maxLength={4000} defaultValue={e.brief ?? ""} /></label>
+              <label>Address of the public page<span className="small faint"> /e/</span><input name="slug" required pattern="[a-z0-9]+(-[a-z0-9]+)*" minLength={3} maxLength={60} defaultValue={e.slug} /></label>
+              <div className="actions"><button type="submit" className="ghost">Save details</button><span className="small faint">Times are in {e.timezone}. Changing the address breaks links already sent to guests.</span></div>
+            </form>
             <h2>Places and targets</h2>
             <form action={updateEventAction} className="row" style={{ marginBottom: 26 }}>
               {hidden}
               <label>Places available<input name="capacity" type="number" min={1} defaultValue={e.capacity ?? ""} placeholder="No limit" /></label>
               <label>Registration target<input name="targetRegistrations" type="number" min={1} defaultValue={e.targetRegistrations ?? ""} /></label>
               <label>Lead target<input name="targetLeads" type="number" min={1} defaultValue={e.targetLeads ?? ""} /></label>
+              <label className="check"><input type="checkbox" name="requireApproval" defaultChecked={e.requireApproval} /> Approve each guest before they get a place</label>
               <button type="submit" className="ghost">Save</button>
             </form>
             <p className="small faint" style={{ marginTop: -14 }}>When every place is taken, new guests join a waitlist and are moved up automatically when someone cancels.</p>
@@ -427,6 +459,17 @@ export default async function EventPage({ params, searchParams }: { params: Prom
                 <form key={n.status} action={setStatusAction}>{hidden}<input type="hidden" name="status" value={n.status} /><button type="submit" className={i === 0 ? "" : "ghost"}>{n.label}</button></form>
               ))}
             </div>
+            {e.status !== "cancelled" && can(me, "event.publish") && (
+              <details className="add" style={{ marginTop: 18 }}>
+                <summary>Cancel this event</summary>
+                <form action={cancelEventAction} className="stack">
+                  {hidden}
+                  <label>A note for guests (optional)<textarea name="message" rows={3} maxLength={2000} placeholder="What happens next, for example a new date or who to contact." /></label>
+                  <label className="check"><input type="checkbox" name="confirm" required /> Call the event off, shut registration and email everyone invited, registered or waiting.</label>
+                  <div><button type="submit" className="ghost">Cancel the event</button></div>
+                </form>
+              </details>
+            )}
           </section>
         </div>
       )}

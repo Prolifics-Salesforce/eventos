@@ -48,3 +48,11 @@ export function formatWhen(date: Date | null, timeZone: string): string {
   if (!date) return "Date to be set";
   return new Intl.DateTimeFormat("en-IN", { timeZone, dateStyle: "medium", timeStyle: "short" }).format(date);
 }
+
+/** The other direction: an instant as the value a datetime-local input shows for a zone ("2027-02-12T09:00"). */
+export function isoToZonedLocal(date: Date | null, timeZone: string): string {
+  if (!date) return "";
+  const parts = new Intl.DateTimeFormat("en-US", { timeZone, hourCycle: "h23", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" }).formatToParts(date);
+  const get = (type: string) => parts.find((p) => p.type === type)!.value;
+  return `${get("year")}-${get("month")}-${get("day")}T${get("hour")}:${get("minute")}`;
+}

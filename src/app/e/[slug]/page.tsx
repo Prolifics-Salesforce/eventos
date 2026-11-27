@@ -28,14 +28,17 @@ export default async function PublicEvent({ params, searchParams }: { params: Pr
   return (
     <div className="center">
       <div className="card" style={{ maxWidth: 480 }}>
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        {e.coverImageUrl && <img src={e.coverImageUrl} alt="" style={{ width: "100%", aspectRatio: "16 / 9", objectFit: "cover", borderRadius: 14, marginBottom: 18, display: "block" }} />}
         <span className="kind">{kind}</span>
         <h1>{e.name}</h1>
         <div className="when">
           <div className="datebox" style={{ textAlign: "left" }}>
             {e.startsAt ? <><b>{new Intl.DateTimeFormat("en-IN", { day: "numeric", timeZone: e.timezone }).format(e.startsAt)}</b><span>{new Intl.DateTimeFormat("en-IN", { month: "short", year: "numeric", timeZone: e.timezone }).format(e.startsAt)}</span></> : <span>Date to be announced</span>}
           </div>
-          <div>{e.startsAt && new Intl.DateTimeFormat("en-IN", { weekday: "long", hour: "numeric", minute: "2-digit", timeZone: e.timezone }).format(e.startsAt)}{e.venue && <><br />{e.venue}</>}</div>
+          <div>{e.startsAt && new Intl.DateTimeFormat("en-IN", { weekday: "long", hour: "numeric", minute: "2-digit", timeZone: e.timezone }).format(e.startsAt)}{e.venue && <><br />{e.venue}</>}{e.locationUrl && <> · <a href={e.locationUrl} target="_blank" rel="noopener noreferrer">Map</a></>}</div>
         </div>
+        {e.description && <div style={{ margin: "0 0 20px" }}>{e.description.split(/\n{2,}/).map((para, i) => <p key={i} className="muted" style={{ margin: "0 0 10px", whiteSpace: "pre-line" }}>{para}</p>)}</div>}
         {sessions.length > 0 && (
           <div className="agenda">
             {sessions.map((x) => (
@@ -46,14 +49,20 @@ export default async function PublicEvent({ params, searchParams }: { params: Pr
             ))}
           </div>
         )}
-        {done ? (
-          <div className="notice good">{done === "wait" ? "You're on the waitlist. We will email you the moment a place opens." : "You're registered. Your pass is on its way by email."}</div>
+        {e.status === "cancelled" ? (
+          <div className="notice">This event has been cancelled.</div>
+        ) : done ? (
+          <>
+            <div className="notice good">{done === "wait" ? "You're on the waitlist. We will email you the moment a place opens." : done === "pending" ? "Thanks. The organisers approve each guest, and we will email you as soon as they have decided." : "You're registered. Your pass is on its way by email."}</div>
+            {done === "1" && e.startsAt && <a className="button" href={`/e/${e.slug}/calendar.ics`}>Add to your calendar</a>}
+          </>
         ) : e.status === "closed" ? (
           <div className="notice">Registration for this event has closed.</div>
         ) : (
           <>
             {notice && <div className="notice">{notice}</div>}
-            {full && <div className="notice quiet">Every place is taken. Join the waitlist and we will email you if one opens.</div>}
+            {e.requireApproval && <div className="notice quiet">The organisers approve each guest. You will hear back by email.</div>}
+            {full && !e.requireApproval && <div className="notice quiet">Every place is taken. Join the waitlist and we will email you if one opens.</div>}
             <form action={registerGuestAction} className="stack">
               <input type="hidden" name="eventSlug" value={e.slug} />
               <label>First name<input name="firstName" required autoComplete="given-name" /></label>
@@ -63,7 +72,7 @@ export default async function PublicEvent({ params, searchParams }: { params: Pr
               <FieldInputs fields={fields} />
               <label className="check"><input type="checkbox" name="whatsappOptIn" /> Send me event updates on WhatsApp</label>
               <input name="website" tabIndex={-1} autoComplete="off" aria-hidden="true" style={{ position: "absolute", left: "-9999px" }} />
-              <button type="submit">{full ? "Join the waitlist" : "Register"}</button>
+              <button type="submit">{e.requireApproval ? "Ask to join" : full ? "Join the waitlist" : "Register"}</button>
               <p className="small faint" style={{ margin: 0 }}>We use these details to run this event and to send you updates about it. Every email has an unsubscribe link.</p>
             </form>
           </>

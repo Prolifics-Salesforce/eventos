@@ -4,12 +4,13 @@ import { can, requirePrincipal } from "@/lib/session";
 import { Denied } from "@/components/denied";
 
 import { sysRole, sysUser, sysUserRole } from "@/db/schema";
-import { createUserAction, resetPasswordAction } from "@/app/actions";
+import { createUserAction, resetPasswordAction, setActiveAction, setRoleAction } from "@/app/actions";
 import { HUMAN_ROLES } from "@/platform/permissions";
 
 export default async function Team({ searchParams }: { searchParams: Promise<{ notice?: string; ok?: string }> }) {
   const { notice, ok } = await searchParams;
-  if (!can(await requirePrincipal(), "admin.manage")) return <Denied title="Team" />;
+  const me = await requirePrincipal();
+  if (!can(me, "admin.manage")) return <Denied title="Team" />;
   const db = await getDb();
   const rows = await db.select({ u: sysUser, role: sysRole.name }).from(sysUser)
     .leftJoin(sysUserRole, eq(sysUserRole.userId, sysUser.id)).leftJoin(sysRole, eq(sysRole.id, sysUserRole.roleId)).orderBy(asc(sysUser.kind), asc(sysUser.name));
@@ -30,13 +31,21 @@ export default async function Team({ searchParams }: { searchParams: Promise<{ n
       </div>
       <div className="card">
         <table>
-          <thead><tr><th>Name</th><th>Kind</th><th>Email</th><th>Role</th><th>New password</th></tr></thead>
+          <thead><tr><th>Name</th><th>Kind</th><th>Email</th><th>Role</th><th>New password</th><th>Account</th></tr></thead>
           <tbody>{rows.map(({ u, role }) => (
-            <tr key={u.id + role}><td>{u.name}</td><td><span className="pill">{u.kind}</span></td><td className="muted">{u.email}</td><td>{role}</td>
+            <tr key={u.id + role}><td>{u.name}</td><td><span className="pill">{u.kind}</span></td><td className="muted">{u.email}</td>
+              <td>{u.kind === "human" ? (
+                <form action={setRoleAction} className="actions"><input type="hidden" name="userId" value={u.id} />
+                  <select name="role" defaultValue={role ?? "organiser"} aria-label={`Role for ${u.name}`} style={{ width: "auto" }}>{HUMAN_ROLES.map((r) => <option key={r}>{r}</option>)}</select><button className="ghost" type="submit">Save</button></form>
+              ) : role}</td>
               <td>{u.kind === "human" && (
                 <form action={resetPasswordAction} className="actions"><input type="hidden" name="userId" value={u.id} />
                   <input name="password" type="password" minLength={10} required placeholder="At least 10 characters" autoComplete="new-password" style={{ width: 190 }} /><button className="ghost" type="submit">Reset</button></form>
-              )}</td></tr>
+              )}</td>
+              <td>{u.kind === "human" && (u.id === me.id ? <span className="small faint">You</span> : (
+                <form action={setActiveAction} className="actions"><input type="hidden" name="userId" value={u.id} /><input type="hidden" name="active" value={u.active ? "false" : "true"} />
+                  {!u.active && <span className="pill">switched off</span>}<button className="link" type="submit">{u.active ? "Switch off" : "Switch back on"}</button></form>
+              ))}</td></tr>
           ))}</tbody>
         </table>
       </div>

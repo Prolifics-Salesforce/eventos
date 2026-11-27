@@ -238,7 +238,8 @@ export const contact = pgTable("contact", {
 });
 
 export type EventKind = "booth" | "field" | "conference";
-export type EventStatus = "draft" | "live" | "closed" | "archived";
+/** cancelled: called off. The public page says so and registration is shut; reached only through event.cancel, which tells the guests. */
+export type EventStatus = "draft" | "live" | "closed" | "archived" | "cancelled";
 
 export const event = pgTable("event", {
   ...record(),
@@ -258,6 +259,14 @@ export const event = pgTable("event", {
   targetRegistrations: integer("target_registrations"),
   targetLeads: integer("target_leads"),
   currency: text("currency").notNull().default("INR"),
+  /** What guests read on the public page. Plain text; blank lines make paragraphs. */
+  description: text("description"),
+  /** An https address of a picture shown at the top of the public page. */
+  coverImageUrl: text("cover_image_url"),
+  /** An https link to a map of the venue. */
+  locationUrl: text("location_url"),
+  /** When true, a guest who registers waits as "pending" until someone on the team approves them. */
+  requireApproval: boolean("require_approval").notNull().default(false),
 });
 
 /** What an event is expected to cost and what it did cost, line by line. Whole currency units. */
@@ -322,7 +331,8 @@ export const sessionSpeaker = pgTable(
 );
 
 export type FormPurpose = "registration" | "lead";
-export type FieldType = "text" | "select" | "checkbox";
+/** terms: a statement the guest must tick to agree to. The others are text with a fitting check and keyboard. */
+export type FieldType = "text" | "select" | "checkbox" | "phone" | "company" | "website" | "social" | "terms";
 
 /** Extra questions an organiser adds to an event's registration form or lead capture. */
 export const formField = pgTable(
@@ -341,7 +351,8 @@ export const formField = pgTable(
   (t) => [uniqueIndex("form_field_key").on(t.eventId, t.purpose, t.key)],
 );
 
-export type RegistrationStatus = "invited" | "registered" | "waitlisted" | "attended" | "declined" | "cancelled" | "no_show";
+/** pending: asked for a place at an event that approves each guest, and not yet decided. */
+export type RegistrationStatus = "invited" | "pending" | "registered" | "waitlisted" | "attended" | "declined" | "cancelled" | "no_show";
 
 export const registration = pgTable(
   "registration",

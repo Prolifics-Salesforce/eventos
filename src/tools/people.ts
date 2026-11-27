@@ -79,6 +79,7 @@ export const registrationCheckIn = defineTool({
     if (!row) throw new ToolError("not_found", "No such registration");
     if (row.checkedInAt) return { id: row.id, pin: row.pin, alreadyCheckedIn: true };
     if (row.status === "cancelled" || row.status === "declined") throw new ToolError("cancelled", "This guest cancelled or declined");
+    if (row.status === "pending") throw new ToolError("not_approved", "This guest has not been approved yet");
     const pin = String(randomInt(0, 1_000_000)).padStart(6, "0");
     await ctx.db
       .update(registration)
@@ -113,7 +114,7 @@ export const leadCapture = defineTool({
 export const registrationRegisterGuest = defineTool({
   name: "registration.register_guest",
   description:
-    "Self-registration from the public event page. Works only while the event is live. Never changes an existing contact's details.",
+    "Self-registration from the public event page. Works only while the event is live. Never changes an existing contact's details. When the event approves each guest, the result is a pending request, not a place.",
   permission: "registration.write",
   risk: "write",
   input: z.object({
@@ -141,7 +142,7 @@ export const registrationRegisterGuest = defineTool({
       .from(registration)
       .where(and(eq(registration.eventId, target.id), eq(registration.contactId, person.id)));
     if (existing) return { registered: true, created: false, status: "existing" as const };
-    const status = await placeFor(ctx.db, target.id, target.capacity);
+    const status = target.requireApproval ? ("pending" as const) : await placeFor(ctx.db, target.id, target.capacity);
     const [row] = await ctx.db
       .insert(registration)
       .values({
@@ -149,7 +150,8 @@ export const registrationRegisterGuest = defineTool({
         createdBy: ctx.principal.id, updatedBy: ctx.principal.id,
       })
       .returning({ id: registration.id });
-    await ctx.emit("registration.created", { eventId: target.id, registrationId: row.id, contactId: person.id, status });
+    // A request tells the guest it was received; a place tells them they are in.
+    await ctx.emit(status === "pending" ? "registration.requested" : "registration.created", { eventId: target.id, registrationId: row.id, contactId: person.id, status });
     return { registered: true, created: true, status };
   },
 });
@@ -257,9 +259,10 @@ export const registrationRsvp = defineTool({
       return { status: "declined" as const, changed: true };
     }
     const answers = await readAnswers(ctx.db, row.e.id, "registration", raw);
-    const status = await placeFor(ctx.db, row.e.id, row.e.capacity);
+    // Someone the team invited by name is already approved. Someone coming back after declining or cancelling asks again.
+    const status = row.e.requireApproval && row.r.status !== "invited" ? ("pending" as const) : await placeFor(ctx.db, row.e.id, row.e.capacity);
     await ctx.db.update(registration).set({ status, custom: answers, updatedBy: ctx.principal.id, updatedAt: new Date() }).where(eq(registration.id, registrationId));
-    await ctx.emit("registration.created", { eventId: row.e.id, registrationId, contactId: row.r.contactId, status });
+    await ctx.emit(status === "pending" ? "registration.requested" : "registration.created", { eventId: row.e.id, registrationId, contactId: row.r.contactId, status });
     return { status, changed: true };
   },
 });
@@ -318,5 +321,90 @@ export const leadSetValue = defineTool({
     if (!row) throw new ToolError("not_found", "No such lead");
     await ctx.emit("lead.valued", { leadId, eventId: row.eventId, pipelineValue });
     return { id: row.id, pipelineValue };
+  },
+});
+
+export const registrationApprove = defineTool({
+  name: "registration.approve",
+  description: "Approve a guest who asked to join an event that approves each guest. They get a place, or a waitlist spot when the event is full, and are emailed.",
+  permission: "registration.write",
+  risk: "write",
+  input: z.object({ registrationId: z.uuid() }),
+  async handler(ctx, { registrationId }) {
+    const [row] = await ctx.db.select({ r: registration, e: event }).from(registration).innerJoin(event, eq(event.id, registration.eventId)).where(eq(registration.id, registrationId));
+    if (!row) throw new ToolError("not_found", "No such registration");
+    if (row.r.status !== "pending") return { status: row.r.status, changed: false };
+    const status = await placeFor(ctx.db, row.e.id, row.e.capacity);
+    await ctx.db.update(registration).set({ status, updatedBy: ctx.principal.id, updatedAt: new Date() }).where(eq(registration.id, registrationId));
+    await ctx.emit("registration.created", { eventId: row.e.id, registrationId, contactId: row.r.contactId, status, approved: true });
+    return { status, changed: true };
+  },
+});
+
+export const registrationDecline = defineTool({
+  name: "registration.decline",
+  description: "Turn down a guest who asked to join an event that approves each guest. They are told by email.",
+  permission: "registration.write",
+  risk: "write",
+  input: z.object({ registrationId: z.uuid() }),
+  async handler(ctx, { registrationId }) {
+    const [row] = await ctx.db.select().from(registration).where(eq(registration.id, registrationId));
+    if (!row) throw new ToolError("not_found", "No such registration");
+    if (row.status !== "pending") return { status: row.status, changed: false };
+    await ctx.db.update(registration).set({ status: "declined", updatedBy: ctx.principal.id, updatedAt: new Date() }).where(eq(registration.id, registrationId));
+    await ctx.emit("registration.turned_down", { eventId: row.eventId, registrationId, contactId: row.contactId });
+    return { status: "declined" as const, changed: true };
+  },
+});
+
+export const registrationUndoCheckIn = defineTool({
+  name: "registration.undo_check_in",
+  description: "Take back a check-in made by mistake. The guest keeps their place and can be checked in again.",
+  permission: "checkin.write",
+  risk: "write",
+  input: z.object({ registrationId: z.uuid() }),
+  async handler(ctx, { registrationId }) {
+    const [row] = await ctx.db.select().from(registration).where(eq(registration.id, registrationId));
+    if (!row) throw new ToolError("not_found", "No such registration");
+    if (!row.checkedInAt) return { undone: false };
+    await ctx.db
+      .update(registration)
+      .set({ status: "registered", pin: null, checkedInAt: null, checkedInBy: null, updatedBy: ctx.principal.id, updatedAt: new Date() })
+      .where(eq(registration.id, registrationId));
+    // An answer to "how was the event?" from someone who, it turns out, was not there is removed with the check-in.
+    await ctx.db.delete(surveyResponse).where(eq(surveyResponse.registrationId, registrationId));
+    await ctx.emit("checkin.undone", { eventId: row.eventId, registrationId, contactId: row.contactId });
+    return { undone: true };
+  },
+});
+
+export const registrationWalkIn = defineTool({
+  name: "registration.walk_in",
+  description: "Register someone who turned up at the door and check them in, in one step. Never changes an existing contact's details. Works when the event is full: the person is already in the room.",
+  permission: "checkin.write",
+  risk: "write",
+  input: z.object({
+    eventId: z.uuid(),
+    // Typed in a hurry at a door: forgive stray spaces and capitals.
+    email: z.string().trim().toLowerCase().pipe(z.email()),
+    firstName: z.string().trim().min(1).max(80),
+    lastName: z.string().trim().max(80).optional(),
+  }),
+  async handler(ctx, { eventId, ...fields }) {
+    const [target] = await ctx.db.select({ id: event.id, status: event.status }).from(event).where(eq(event.id, eventId));
+    if (!target) throw new ToolError("not_found", "No such event");
+    if (target.status === "cancelled" || target.status === "archived") throw new ToolError("not_open", "This event is not running");
+    await ctx.db.insert(contact).values({ ...fields, createdBy: ctx.principal.id, updatedBy: ctx.principal.id }).onConflictDoNothing();
+    const [person] = await ctx.db.select({ id: contact.id }).from(contact).where(eq(contact.email, fields.email));
+    const stamp = { updatedBy: ctx.principal.id, updatedAt: new Date() };
+    const [existing] = await ctx.db.select().from(registration).where(and(eq(registration.eventId, eventId), eq(registration.contactId, person.id)));
+    if (existing?.checkedInAt) return { id: existing.id, number: existing.number, pin: existing.pin, alreadyCheckedIn: true };
+    const pin = String(randomInt(0, 1_000_000)).padStart(6, "0");
+    const arrived = { status: "attended" as const, pin, checkedInAt: new Date(), checkedInBy: ctx.principal.id, ...stamp };
+    const [row] = existing
+      ? await ctx.db.update(registration).set(arrived).where(eq(registration.id, existing.id)).returning({ id: registration.id, number: registration.number })
+      : await ctx.db.insert(registration).values({ eventId, contactId: person.id, source: "walk-in", number: await nextNumber(ctx.db, "REG"), createdBy: ctx.principal.id, ...arrived }).returning({ id: registration.id, number: registration.number });
+    await ctx.emit("checkin.confirmed", { eventId, registrationId: row.id, contactId: person.id, walkIn: !existing });
+    return { id: row.id, number: row.number, pin, alreadyCheckedIn: false };
   },
 });

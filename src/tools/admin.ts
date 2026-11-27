@@ -1,7 +1,7 @@
-import { and, eq, isNull } from "drizzle-orm";
+import { and, count, eq, isNull, ne } from "drizzle-orm";
 import { z } from "zod";
 import { randomBytes } from "node:crypto";
-import { sysPolicy, sysProperty, sysSession, sysUser, webhook } from "@/db/schema";
+import { sysPolicy, sysProperty, sysRole, sysSession, sysUser, sysUserRole, webhook } from "@/db/schema";
 import { hashPassword, verifyPassword } from "@/platform/auth";
 import { HUMAN_ROLES } from "@/platform/permissions";
 import { createUser } from "@/platform/seed";
@@ -125,5 +125,53 @@ export const playbookSet = defineTool({
   async handler(ctx, { text }) {
     await ctx.db.insert(sysProperty).values({ key: "playbook", value: text }).onConflictDoUpdate({ target: sysProperty.key, set: { value: text } });
     return { saved: true, length: text.length };
+  },
+});
+
+/** How many active people other than `userId` are administrators. An instance must always have one. */
+async function otherAdmins(db: Parameters<typeof userCreate.handler>[0]["db"], userId: string): Promise<number> {
+  const [row] = await db
+    .select({ n: count() })
+    .from(sysUserRole)
+    .innerJoin(sysRole, eq(sysRole.id, sysUserRole.roleId))
+    .innerJoin(sysUser, eq(sysUser.id, sysUserRole.userId))
+    .where(and(eq(sysRole.name, "admin"), eq(sysUser.kind, "human"), eq(sysUser.active, true), ne(sysUser.id, userId)));
+  return row.n;
+}
+
+export const userSetRole = defineTool({
+  name: "user.set_role",
+  description: "Change a team member's role. It takes effect on their next page.",
+  permission: "admin.manage",
+  risk: "write",
+  input: z.object({ userId: z.uuid(), role: z.enum(HUMAN_ROLES) }),
+  async handler(ctx, { userId, role }) {
+    const [who] = await ctx.db.select({ kind: sysUser.kind }).from(sysUser).where(eq(sysUser.id, userId));
+    if (who?.kind !== "human") throw new ToolError("not_found", "No such person");
+    if (role !== "admin" && (await otherAdmins(ctx.db, userId)) === 0) throw new ToolError("last_admin", "This is the only administrator. Make someone else an administrator first.");
+    const [target] = await ctx.db.select({ id: sysRole.id }).from(sysRole).where(eq(sysRole.name, role));
+    if (!target) throw new ToolError("not_found", `No role called ${role}`);
+    await ctx.db.delete(sysUserRole).where(eq(sysUserRole.userId, userId));
+    await ctx.db.insert(sysUserRole).values({ userId, roleId: target.id });
+    return { userId, role };
+  },
+});
+
+export const userSetActive = defineTool({
+  name: "user.set_active",
+  description: "Switch a team member's account off or back on. Switching it off signs them out everywhere; nothing they did is removed.",
+  permission: "admin.manage",
+  risk: "write",
+  input: z.object({ userId: z.uuid(), active: z.boolean() }),
+  async handler(ctx, { userId, active }) {
+    const [who] = await ctx.db.select({ kind: sysUser.kind }).from(sysUser).where(eq(sysUser.id, userId));
+    if (who?.kind !== "human") throw new ToolError("not_found", "No such person");
+    if (!active) {
+      if (userId === ctx.principal.id) throw new ToolError("self", "You cannot switch off your own account");
+      if ((await otherAdmins(ctx.db, userId)) === 0) throw new ToolError("last_admin", "This is the only administrator. Make someone else an administrator first.");
+      await ctx.db.delete(sysSession).where(eq(sysSession.userId, userId));
+    }
+    await ctx.db.update(sysUser).set({ active }).where(eq(sysUser.id, userId));
+    return { userId, active };
   },
 });

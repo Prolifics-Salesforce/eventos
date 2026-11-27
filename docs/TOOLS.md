@@ -13,9 +13,9 @@ Generated from the code. Every change to data goes through one of these tools, w
 | `session.create` | session.write | write | Add a session to a conference, optionally with speakers (who must already be contacts). |
 | `session.add_speaker` | session.write | write | Put an existing contact on a session as a speaker, moderator or panellist. |
 | `event.public_info` | event.read | read | What the public may know about an event: name, time, venue and, for conferences, the agenda. Nothing internal. |
-| `form.add_field` | event.write | write | Add a question to an event's registration form or to its lead capture screen. |
+| `form.add_field` | event.write | write | Add a question to an event's registration form or to its lead capture screen: free text, choose one, tick box, company, phone number, web address, social profile, or terms the guest must agree to. |
 | `form.remove_field` | event.write | write | Remove a question from a form. Answers already given are kept on the records. |
-| `event.update` | event.write | write | Change an event's details: venue, brief, capacity, targets, time zone and currency. Leave a field out to keep it; send null to clear a number. Changing the time zone changes how times are shown, not the moments themselves. |
+| `event.update` | event.write | write | Change an event's details: name, dates, venue, public description, cover image, map link, address of the public page, brief, capacity, targets, whether guests need approval, time zone and currency. Leave a field out to keep it; send null to clear one. Changing the address breaks links already sent. |
 | `event.clone` | event.write | write | Start a new draft from an existing event: same type, venue, brief, capacity, targets, questions, planned budget and session outline. Guests, leads and messages are not copied. |
 | `budget.set_item` | event.write | write | Add a budget line to an event, or update one: what it is, the planned amount and, once known, the actual amount. |
 | `budget.remove_item` | event.write | write | Remove a budget line from an event. |
@@ -46,6 +46,13 @@ Generated from the code. Every change to data goes through one of these tools, w
 | `webhook.create` | admin.manage | write | Tell another system when things happen here. Give its address and which events it wants (for example registration.created, checkin.confirmed, lead.captured), or * for all. |
 | `webhook.remove` | admin.manage | write | Stop telling another system about events here. |
 | `playbook.set` | admin.manage | write | Set the organisation's playbook: brand voice, naming rules, compliance and approval policies. Every agent reads it before it works. |
+| `event.cancel` | event.publish | external | Call an event off. Registration shuts, the public page says it is cancelled, and everyone invited, registered or waiting is emailed once. An optional note from the organisers is added to the email. |
+| `registration.approve` | registration.write | write | Approve a guest who asked to join an event that approves each guest. They get a place, or a waitlist spot when the event is full, and are emailed. |
+| `registration.decline` | registration.write | write | Turn down a guest who asked to join an event that approves each guest. They are told by email. |
+| `registration.undo_check_in` | checkin.write | write | Take back a check-in made by mistake. The guest keeps their place and can be checked in again. |
+| `registration.walk_in` | checkin.write | write | Register someone who turned up at the door and check them in, in one step. Never changes an existing contact's details. Works when the event is full. |
+| `user.set_role` | admin.manage | write | Change a team member's role. It takes effect on their next page. |
+| `user.set_active` | admin.manage | write | Switch a team member's account off or back on. Switching it off signs them out everywhere. |
 | `contact.export` | admin.manage | read | Everything held about one person, found by email: their details, registrations, leads, survey answers, messages sent to them and notes about them. |
 | `contact.erase` | admin.manage | destructive | Remove one person, found by email, and everything held about them: registrations, leads, survey answers, messages, notes, and their details in the ledger. This cannot be undone. |
 

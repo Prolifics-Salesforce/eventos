@@ -42,6 +42,13 @@ const VERBS: Record<string, (i: Input) => string> = {
   "webhook.create": () => "connected another system",
   "webhook.remove": () => "disconnected another system",
   "playbook.set": () => "updated the playbook",
+  "event.cancel": () => "cancelled an event",
+  "registration.approve": () => "approved a guest",
+  "registration.decline": () => "turned a guest down",
+  "registration.undo_check_in": () => "took back a check-in",
+  "registration.walk_in": (i) => `checked in ${i.firstName ?? "a guest"} as a walk-in`,
+  "user.set_role": (i) => `made a team member ${/^[aeiou]/.test(String(i.role)) ? "an" : "a"} ${i.role}`,
+  "user.set_active": (i) => `switched a team member's account ${i.active ? "back on" : "off"}`,
   "contact.export": () => "exported a person's data",
   "contact.erase": () => "erased a person's data",
   "policy.set": (i) => `set ${i.tool} to ${i.level === "auto" ? "automatic" : "ask first"} for an agent`,
@@ -50,7 +57,7 @@ const VERBS: Record<string, (i: Input) => string> = {
 const BASE: Record<string, string> = {
   created: "create", read: "read", looked: "look", set: "set", added: "add", removed: "remove", saved: "save", recorded: "record", registered: "register",
   checked: "check", exported: "export", captured: "capture", scored: "score", sent: "send", messaged: "message", marked: "mark", wrote: "write", asked: "ask",
-  reset: "reset", changed: "change", ran: "run", updated: "update", started: "start", erased: "erase", put: "put", cancelled: "cancel", connected: "connect", disconnected: "disconnect",
+  reset: "reset", changed: "change", ran: "run", updated: "update", started: "start", erased: "erase", approved: "approve", turned: "turn", took: "take", made: "make", switched: "switch", put: "put", cancelled: "cancel", connected: "connect", disconnected: "disconnect",
 };
 
 export function sentence(tool: string, input: unknown, status: string): string {

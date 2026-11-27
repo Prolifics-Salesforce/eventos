@@ -7,7 +7,7 @@ import { appUrl, signedToken } from "@/platform/properties";
 import { defineTool, ToolError } from "@/platform/tools";
 
 /** Every guest email carries a way out. Returns the body with the footer, and the link for the mail header. */
-async function withUnsubscribe(db: Db, contactId: string, body: string) {
+export async function withUnsubscribe(db: Db, contactId: string, body: string) {
   const unsubscribeUrl = `${appUrl()}/u/${await signedToken(db, "unsubscribe", contactId)}`;
   return { body: `${body}\n\n—\nTo stop receiving these emails: ${unsubscribeUrl}`, unsubscribeUrl };
 }

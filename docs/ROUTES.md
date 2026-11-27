@@ -13,6 +13,7 @@ Generated from `src/app`.
 | `/api/tools` | endpoint | Anyone (the catalogue only, no data) | `src/app/api/tools/route.ts` |
 | `/api/tools/<name>` | endpoint | API key | `src/app/api/tools/[name]/route.ts` |
 | `/e/<slug>` | screen | Public | `src/app/e/[slug]/page.tsx` |
+| `/e/<slug>/calendar.ics` | endpoint | Public (a live, closed or cancelled event with a date) | `src/app/e/[slug]/calendar.ics/route.ts` |
 | `/e/<slug>/ask` | screen | Public | `src/app/e/[slug]/ask/page.tsx` |
 | `/e/<slug>/pass/<id>` | screen | Public | `src/app/e/[slug]/pass/[id]/page.tsx` |
 | `/events` | screen | Signed-in team | `src/app/(console)/events/page.tsx` |

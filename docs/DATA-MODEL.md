@@ -79,6 +79,10 @@ Links to: account
 | target_registrations | integer |  |  |
 | target_leads | integer |  |  |
 | currency | text | yes | INR |
+| description | text |  |  |
+| cover_image_url | text |  |  |
+| location_url | text |  |  |
+| require_approval | boolean | yes | false |
 
 ## event_session
 
