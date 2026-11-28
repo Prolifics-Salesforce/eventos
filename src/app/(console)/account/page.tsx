@@ -1,12 +1,12 @@
 import { changePasswordAction, signOutAction } from "@/app/actions";
-import { requirePrincipal } from "@/lib/session";
+import { requirePrincipal, roleLabel } from "@/lib/session";
 
 export default async function Account({ searchParams }: { searchParams: Promise<{ notice?: string; ok?: string }> }) {
   const { notice, ok } = await searchParams;
   const me = await requirePrincipal();
   return (
     <>
-      <div className="head"><div><h1>{me.name}</h1><div className="muted">Your account.</div></div><form action={signOutAction}><button type="submit" className="ghost">Sign out</button></form></div>
+      <div className="head"><div><h1>{me.name}</h1><div className="muted">Your account. You are signed in to the organising team as {roleLabel(me).toLowerCase() === "admin" ? "an" : roleLabel(me) === "Organiser" ? "an" : "a"} <b>{roleLabel(me).toLowerCase()}</b>.</div></div><form action={signOutAction}><button type="submit" className="ghost">Sign out</button></form></div>
       {notice && <div className="notice">{notice}</div>}
       {ok && <div className="notice good">{ok}</div>}
       <div className="card" style={{ maxWidth: 460 }}>

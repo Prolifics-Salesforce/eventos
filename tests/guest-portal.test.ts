@@ -151,3 +151,53 @@ describe("a site with no mail server", () => {
     }
   });
 });
+
+describe("a guest's own details", () => {
+  const gita = async () => (await db.select().from(contact).where(eq(contact.email, "gita@guest.test")))[0];
+
+  it("lets them change their name, title and phone, and never their email", async () => {
+    const before = await gita();
+    await ok(site, "guest.update_profile", { contactId: before.id, firstName: "Gitanjali", lastName: "Rao", title: "CTO", phone: "+919800000001", emailUpdates: true, whatsappOptIn: false, email: "someone-else@guest.test" });
+    expect(await gita()).toMatchObject({ firstName: "Gitanjali", lastName: "Rao", title: "CTO", phone: "+919800000001", email: "gita@guest.test" });
+    expect((await invoke(db, site, "guest.update_profile", { contactId: before.id, firstName: "G", phone: "12345", emailUpdates: true, whatsappOptIn: false })).status).toBe("invalid");
+  });
+
+  it("turns event emails off and on, keeping the date they were first turned off", async () => {
+    const { id } = await gita();
+    const base = { contactId: id, firstName: "Gitanjali", phone: "+919800000001", whatsappOptIn: false };
+    await ok(site, "guest.update_profile", { ...base, emailUpdates: false });
+    const off = (await gita()).emailOptOutAt;
+    expect(off).toBeTruthy();
+    await ok(site, "guest.update_profile", { ...base, emailUpdates: false });
+    expect((await gita()).emailOptOutAt).toEqual(off);
+    await ok(site, "guest.update_profile", { ...base, emailUpdates: true });
+    expect((await gita()).emailOptOutAt).toBeNull();
+  });
+
+  it("needs a mobile number before WhatsApp updates can be switched on", async () => {
+    const { id } = await gita();
+    expect(await invoke(db, site, "guest.update_profile", { contactId: id, firstName: "Gitanjali", phone: null, emailUpdates: true, whatsappOptIn: true })).toMatchObject({ status: "error", code: "no_phone" });
+    await ok(site, "guest.update_profile", { contactId: id, firstName: "Gitanjali", phone: "+919800000001", emailUpdates: true, whatsappOptIn: true });
+    expect((await gita()).whatsappOptInAt).toBeTruthy();
+  });
+
+  it("is not something a team member's role includes, apart from the administrator", async () => {
+    const { id } = await gita();
+    expect((await invoke(db, organiser, "guest.update_profile", { contactId: id, firstName: "Nope", emailUpdates: true, whatsappOptIn: false })).status).toBe("denied");
+  });
+});
+
+describe("joining another event while signed in", () => {
+  it("registers them with the details already held, and says which pass was made", async () => {
+    const e = await ok<{ id: string; slug: string }>(organiser, "event.create", { name: "Second Event", kind: "field", startsAt: "2027-07-01T10:00:00+05:30" });
+    await ok(organiser, "event.set_status", { eventId: e.id, status: "live" });
+    const out = await ok<{ status: string; registrationId?: string }>(site, "registration.register_guest", { eventSlug: e.slug, email: "gita@guest.test", firstName: "Changed", answers: {} });
+    expect(out.status).toBe("registered");
+    expect(out.registrationId).toMatch(/^[0-9a-f-]{36}$/);
+    // The name typed does not overwrite the person on record, and asking again gives no pass id away.
+    expect((await db.select().from(contact).where(eq(contact.email, "gita@guest.test")))[0].firstName).toBe("Gitanjali");
+    const again = await ok<{ status: string; registrationId?: string }>(site, "registration.register_guest", { eventSlug: e.slug, email: "gita@guest.test", firstName: "X", answers: {} });
+    expect(again).toMatchObject({ status: "existing" });
+    expect(again.registrationId).toBeUndefined();
+  });
+});

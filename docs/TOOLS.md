@@ -60,6 +60,7 @@ Generated from the code. Every change to data goes through one of these tools, w
 | `account.reset_password` | account.reset | write | Set a new password using the link from a reset email. The link works once, for an hour; using it signs the person out everywhere. |
 | `guest.request_link` | guest.portal | write | Email a guest a link to see every event they are registered for, with their passes. Says the same whether or not the email is on any guest list. |
 | `guest.sign_in` | guest.portal | write | Use the link from a guest's sign-in email. The link works once, for 30 minutes. |
+| `guest.update_profile` | guest.portal | write | A signed-in guest changing their own details and what they are sent: name, job title, phone, event emails and WhatsApp updates. |
 | `contact.export` | admin.manage | read | Everything held about one person, found by email: their details, registrations, leads, survey answers, messages sent to them and notes about them. |
 | `contact.erase` | admin.manage | destructive | Remove one person, found by email, and everything held about them: registrations, leads, survey answers, messages, notes, and their details in the ledger. This cannot be undone. |
 

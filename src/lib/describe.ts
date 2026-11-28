@@ -48,6 +48,7 @@ const VERBS: Record<string, (i: Input) => string> = {
   "registration.check_in_by_number": () => "checked a guest in from their pass",
   "guest.request_link": () => "asked for a link to their events",
   "guest.sign_in": () => "opened their events page",
+  "guest.update_profile": () => "updated their own details",
   "account.request_reset": () => "asked for a password reset link",
   "account.reset_password": () => "set a new password from a reset link",
   "registration.approve": () => "approved a guest",

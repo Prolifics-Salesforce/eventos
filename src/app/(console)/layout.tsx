@@ -9,7 +9,7 @@ import { CommandBar, type Command } from "@/components/command-bar";
 import { RailNav } from "@/components/rail-nav";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { initials } from "@/lib/describe";
-import { can, requirePrincipal } from "@/lib/session";
+import { can, requirePrincipal, roleLabel } from "@/lib/session";
 import type { Permission } from "@/platform/permissions";
 
 export const dynamic = "force-dynamic";
@@ -47,6 +47,7 @@ export default async function ConsoleLayout({ children }: { children: ReactNode 
         <RailNav items={NAV.map((n) => ({ href: n.href, label: n.label, icon: n.icon, count: n.href === "/inbox" ? waiting.n : 0 }))} />
         <div className="foot small">
           <Link href="/account">{principal.name}</Link>
+          <span className="small faint">{roleLabel(principal)}</span>
           <form action={signOutAction}><button className="link" type="submit">Sign out</button></form>
         </div>
       </nav>
@@ -59,7 +60,7 @@ export default async function ConsoleLayout({ children }: { children: ReactNode 
           </span>
           <div className="me">
             <ThemeToggle />
-            <Link href="/account" className="chip" title="Your account"><span className="avatar">{initials(principal.name)}</span><span>{principal.name.split(" ")[0]}</span></Link>
+            <Link href="/account" className="chip" title="Your account"><span className="avatar">{initials(principal.name)}</span><span>{principal.name.split(" ")[0]}</span><span className={`pill role ${roleLabel(principal).toLowerCase()}`}>{roleLabel(principal)}</span></Link>
           </div>
         </div>
         <main className="page">{children}</main>

@@ -14,7 +14,7 @@ import { randomUUID } from "node:crypto";
 import { decideApproval, invoke, type InvokeResult } from "@/platform/tools";
 import { deliverSoon } from "@/lib/deliver";
 import { requirePrincipal, SESSION_COOKIE } from "@/lib/session";
-import { GUEST_COOKIE, GUEST_MAX_AGE, guestCookieValue } from "@/lib/guest";
+import { currentGuest, GUEST_COOKIE, GUEST_MAX_AGE, guestCookieValue } from "@/lib/guest";
 import { DEFAULT_TIMEZONE, zonedToIso } from "@/lib/when";
 import "@/tools";
 
@@ -589,4 +589,33 @@ export async function guestEnterAction(form: FormData) {
 export async function guestSignOutAction() {
   (await cookies()).delete(GUEST_COOKIE);
   redirect("/my");
+}
+
+/** A signed-in guest joining another event with the details already held for them. */
+export async function guestRegisterAction(form: FormData) {
+  const guest = await currentGuest();
+  if (!guest) redirect("/my");
+  const slug = text(form, "eventSlug") ?? "";
+  const db = await getDb();
+  const result = await invoke<{ status: string; registrationId?: string }>(db, await servicePrincipal(db, "Public site"), "registration.register_guest", {
+    eventSlug: slug, email: guest.email, firstName: guest.firstName, lastName: guest.lastName ?? undefined, phone: guest.phone ?? undefined,
+    whatsappOptIn: Boolean(guest.whatsappOptInAt), answers: {},
+  });
+  deliverSoon();
+  if (result.status === "ok" && result.output.registrationId) redirect(`/e/${slug}/pass/${result.output.registrationId}?welcome=1`);
+  if (result.status === "ok") redirect("/my");
+  // The event asks questions this page cannot answer for them: send them to its own form.
+  if (result.status === "error" && (result.code === "missing_answer" || result.code === "bad_answer")) redirect(`/e/${slug}`);
+  redirect(`/my?tab=discover&notice=${encodeURIComponent(explain(result))}`);
+}
+
+export async function guestProfileAction(form: FormData) {
+  const guest = await currentGuest();
+  if (!guest) redirect("/my");
+  const db = await getDb();
+  const result = await invoke(db, await servicePrincipal(db, "Public site"), "guest.update_profile", {
+    contactId: guest.id, firstName: text(form, "firstName"), lastName: text(form, "lastName") ?? null, title: text(form, "title") ?? null,
+    phone: text(form, "phone") ?? null, emailUpdates: form.get("emailUpdates") === "on", whatsappOptIn: form.get("whatsappOptIn") === "on",
+  });
+  redirect(result.status === "ok" ? `/my?tab=profile&ok=${encodeURIComponent("Saved")}` : `/my?tab=profile&notice=${encodeURIComponent(explain(result))}`);
 }

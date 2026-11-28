@@ -89,6 +89,9 @@ code, .mono { font-family: var(--text); font-size: 13px; color: var(--dim); lett
 .me { margin-left: auto; display: inline-flex; align-items: center; gap: 10px; }
 .me a.chip { display: inline-flex; align-items: center; gap: 9px; padding: 5px 12px 5px 5px; border-radius: 999px; border: 1px solid var(--rule-soft); background: var(--deck); color: var(--ink); font-weight: 500; font-size: 14px; }
 .me a.chip:hover { text-decoration: none; border-color: var(--rule); }
+.pill.role { font-size: 11px; padding: 1px 8px; letter-spacing: 0.04em; text-transform: uppercase; }
+.pill.role.admin { background: color-mix(in srgb, var(--rose) 16%, transparent); color: var(--rose); } .pill.role.organiser { background: color-mix(in srgb, var(--iris) 18%, transparent); color: var(--iris); }
+.pill.role.sales { background: color-mix(in srgb, var(--amber) 16%, transparent); color: var(--amber); } .pill.role.desk { background: color-mix(in srgb, var(--mint) 16%, transparent); color: var(--mint); }
 .theme { width: 38px; height: 38px; padding: 0; border-radius: 50%; background: var(--deck); border: 1px solid var(--rule-soft); color: var(--dim); box-shadow: none; }
 .theme:hover { color: var(--ink); border-color: var(--rule); filter: none; transform: none; }
 
@@ -267,7 +270,7 @@ details.add > form, details.add > div { padding: 20px; animation: rise 0.2s ease
   .rail a.nav .count { position: absolute; top: 2px; right: 0; margin: 0; font-size: 10px; line-height: 15px; padding: 0 5px; }
   .topbar { padding: 14px 16px 0; gap: 10px; } .page { padding: 20px 16px 40px; } .cols { grid-template-columns: 1fr; gap: 8px; } .season { display: none; }
   .rowlink, .rowitem { grid-template-columns: 64px minmax(0, 1fr); } .rowlink > :last-child, .rowitem > :last-child { grid-column: 2; }
-  .status.wide, .me a.chip span:not(.avatar) { display: none; } .me a.chip { padding: 5px; } .cmd kbd { display: none; } .cmd input { padding-right: 18px; }
+  .status.wide, .me a.chip span:not(.avatar):not(.pill) { display: none; } .me a.chip { padding: 5px; } .cmd kbd { display: none; } .cmd input { padding-right: 18px; }
   .evt { grid-template-columns: 1fr; gap: 24px; padding: 20px 16px 60px; } .evt .side { position: static; } .evt .side .poster { max-width: 340px; margin: 0 auto; width: 100%; }
   .stat { flex-basis: 50%; border-bottom: 1px solid var(--rule-soft); } .card, .panel { padding: 18px; } .center .card { padding: 26px 22px; }
   table { display: block; overflow-x: auto; white-space: nowrap; } td .sub { white-space: normal; }

@@ -62,3 +62,33 @@ export const guestSignIn = defineTool({
     return { contactId: who.id };
   },
 });
+
+export const guestUpdateProfile = defineTool({
+  name: "guest.update_profile",
+  description: "A signed-in guest changing their own details and what they are sent: name, job title, phone, event emails and WhatsApp updates. Their email is how they sign in and cannot be changed here.",
+  permission: "guest.portal",
+  risk: "write",
+  input: z.object({
+    contactId: z.uuid(),
+    firstName: z.string().trim().min(1).max(80),
+    lastName: z.string().trim().max(80).nullable().optional(),
+    title: z.string().trim().max(120).nullable().optional(),
+    phone: z.string().trim().regex(/^\+[1-9]\d{7,14}$/, "Use international format, e.g. +919876543210").nullable().optional(),
+    emailUpdates: z.boolean(),
+    whatsappOptIn: z.boolean(),
+  }),
+  async handler(ctx, { contactId, emailUpdates, whatsappOptIn, ...fields }) {
+    const [who] = await ctx.db.select().from(contact).where(eq(contact.id, contactId));
+    if (!who) throw new ToolError("not_found", "No such guest");
+    const phone = fields.phone === undefined ? who.phone : fields.phone;
+    if (whatsappOptIn && !phone) throw new ToolError("no_phone", "Add a mobile number to get WhatsApp updates");
+    await ctx.db.update(contact).set({
+      ...fields,
+      // Each consent keeps the date it was first given; ticking a box that was already ticked changes nothing.
+      emailOptOutAt: emailUpdates ? null : (who.emailOptOutAt ?? new Date()),
+      whatsappOptInAt: whatsappOptIn ? (who.whatsappOptInAt ?? new Date()) : null,
+      updatedBy: ctx.principal.id, updatedAt: new Date(),
+    }).where(eq(contact.id, contactId));
+    return { saved: true };
+  },
+});

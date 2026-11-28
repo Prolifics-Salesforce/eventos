@@ -27,3 +27,12 @@ export async function requirePrincipal(): Promise<Principal> {
 
 /** Whether this person's roles include a permission. Screens ask before showing; tools ask again before changing. */
 export const can = (principal: Principal, permission: Permission): boolean => principal.permissions.has(permission);
+
+/** The role a team member holds, for showing beside their name. Worked out from what they may do. */
+export function roleLabel(principal: Principal): "Admin" | "Organiser" | "Sales" | "Desk" | "Team" {
+  if (principal.permissions.has("admin.manage")) return "Admin";
+  if (principal.permissions.has("event.write")) return "Organiser";
+  if (principal.permissions.has("lead.write")) return "Sales";
+  if (principal.permissions.has("checkin.write")) return "Desk";
+  return "Team";
+}

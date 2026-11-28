@@ -11,7 +11,8 @@ export default async function SignIn({ searchParams }: { searchParams: Promise<{
     <div className="center">
       <div className="card">
         <div className="brand" style={{ padding: 0, fontSize: 32 }}>Event<i>OS</i></div>
-        <p className="muted" style={{ margin: "8px 0 22px" }}>Your events, run with a team of agents you stay in charge of.</p>
+        <span className="kind" style={{ display: "block", margin: "14px 0 4px" }}>For the organising team</span>
+        <p className="muted" style={{ margin: "0 0 22px" }}>Your events, run with a team of agents you stay in charge of.</p>
         {notice && <div className="notice">{notice}</div>}
         {ok && <div className="notice good">{ok}</div>}
         <form action={signInAction} className="stack">
