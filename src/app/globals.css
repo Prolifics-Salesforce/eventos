@@ -114,6 +114,8 @@ code, .mono { font-family: var(--text); font-size: 13px; color: var(--dim); lett
 .section { margin-bottom: 36px; } .section > h2 { display: flex; align-items: baseline; gap: 10px; }
 .section > h2 small { font: 400 13px var(--text); color: var(--faint); letter-spacing: 0; }
 .cols { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: 36px; align-items: start; }
+/* A wide table scrolls inside its own section instead of stretching the page. */
+.section:has(> table), .card:has(> table) { overflow-x: auto; }
 .grid { display: grid; gap: 16px; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); }
 .rows { border-top: 1px solid var(--rule-soft); }
 .rowlink, .rowitem { display: grid; grid-template-columns: 92px minmax(0, 1fr) auto; gap: 18px; align-items: center; padding: 15px 10px; border-bottom: 1px solid var(--rule-soft); color: var(--ink); border-radius: 12px; transition: background 0.15s; }
@@ -265,7 +267,7 @@ details.add > form, details.add > div { padding: 20px; animation: rise 0.2s ease
   .rail a.nav .count { position: absolute; top: 2px; right: 0; margin: 0; font-size: 10px; line-height: 15px; padding: 0 5px; }
   .topbar { padding: 14px 16px 0; gap: 10px; } .page { padding: 20px 16px 40px; } .cols { grid-template-columns: 1fr; gap: 8px; } .season { display: none; }
   .rowlink, .rowitem { grid-template-columns: 64px minmax(0, 1fr); } .rowlink > :last-child, .rowitem > :last-child { grid-column: 2; }
-  .status.wide, .me a.chip span { display: none; } .me a.chip { padding: 5px; } .cmd kbd { display: none; } .cmd input { padding-right: 18px; }
+  .status.wide, .me a.chip span:not(.avatar) { display: none; } .me a.chip { padding: 5px; } .cmd kbd { display: none; } .cmd input { padding-right: 18px; }
   .evt { grid-template-columns: 1fr; gap: 24px; padding: 20px 16px 60px; } .evt .side { position: static; } .evt .side .poster { max-width: 340px; margin: 0 auto; width: 100%; }
   .stat { flex-basis: 50%; border-bottom: 1px solid var(--rule-soft); } .card, .panel { padding: 18px; } .center .card { padding: 26px 22px; }
   table { display: block; overflow-x: auto; white-space: nowrap; } td .sub { white-space: normal; }
