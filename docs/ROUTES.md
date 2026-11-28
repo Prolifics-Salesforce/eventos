@@ -15,6 +15,7 @@ Generated from `src/app`.
 | `/e/<slug>` | screen | Public | `src/app/e/[slug]/page.tsx` |
 | `/e/<slug>/calendar.ics` | endpoint | Public (a live, closed or cancelled event with a date) | `src/app/e/[slug]/calendar.ics/route.ts` |
 | `/e/<slug>/ask` | screen | Public | `src/app/e/[slug]/ask/page.tsx` |
+| `/e/<slug>/pass/<id>/certificate` | screen | Whoever holds the pass link, once the guest has been checked in | `src/app/e/[slug]/pass/[id]/certificate/page.tsx` |
 | `/e/<slug>/pass/<id>` | screen | Public | `src/app/e/[slug]/pass/[id]/page.tsx` |
 | `/events` | screen | Signed-in team | `src/app/(console)/events/page.tsx` |
 | `/events/<id>` | screen | Signed-in team | `src/app/(console)/events/[id]/page.tsx` |

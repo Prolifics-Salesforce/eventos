@@ -14,7 +14,7 @@ An honest list of what this build does not do, as of 19 November 2026. Read it b
 ## Missing features
 
 - Contacts and Companies screens (the data exists; no screen shows a person's history across events).
-- Editing or removing sessions and speakers; editing a guest's answers to the event's questions (their name, email, phone and title can be corrected).
+- Editing a guest's answers to the event's questions (their name, email, phone and title can be corrected).
 - Uploading a cover picture: the public page shows one from a web address, but there is no file storage yet.
 - Search, filters and paging on the lead table (the guest table has them).
 - Calendar invitations attached to emails (the confirmation links to a calendar file instead); an email designer (emails go out as plain text plus a simple branded HTML version; `ORG_NAME` and `BRAND_COLOR` set the name and colour); rewording the confirmation beyond adding a note; bounce handling.

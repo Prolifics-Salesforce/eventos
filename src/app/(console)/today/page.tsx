@@ -1,8 +1,10 @@
 import Link from "next/link";
-import { and, asc, count, desc, eq, inArray, ne } from "drizzle-orm";
+import { and, asc, count, desc, eq, inArray, ne, notInArray } from "drizzle-orm";
 import { getDb } from "@/db/client";
 import { event, registration, sysAudit, sysUser, task } from "@/db/schema";
 import { Intent } from "@/components/intent";
+import { taskStateAction } from "@/app/actions";
+import { formatWhen } from "@/lib/when";
 import { ago, countdown, initials, sentence } from "@/lib/describe";
 import { can, requirePrincipal } from "@/lib/session";
 import { DEFAULT_TIMEZONE } from "@/lib/when";
@@ -27,6 +29,9 @@ export default async function Today() {
     db.select().from(task).where(and(eq(task.taskType, "agent_run"), inArray(task.state, ["open", "in_progress"]))),
     db.select({ n: count() }).from(task).where(and(eq(task.taskType, "approval"), eq(task.state, "awaiting_approval"))),
   ]);
+  // To-dos and lead follow-ups that are mine to do, soonest first.
+  const mine = await db.select({ t: task, eventName: event.name }).from(task).leftJoin(event, eq(event.id, task.eventId))
+    .where(and(eq(task.taskType, "task"), eq(task.assignedTo, me.id), notInArray(task.state, ["done", "cancelled"]))).orderBy(asc(task.dueAt)).limit(12);
   const now = Date.now();
   // Fold repeats ("System sent a confirmation" twelve times) into one line with a count.
   const feed: { key: number; kind: string; name: string; text: string; at: Date; times: number }[] = [];
@@ -74,6 +79,29 @@ export default async function Today() {
         </div>
       )}
 
+      {mine.length > 0 && (
+        <section className="section">
+          <h2>Yours to do <small>{mine.length} open</small></h2>
+          <div className="feed">
+            {mine.map(({ t, eventName }) => (
+              <div key={t.id} style={{ alignItems: "center" }}>
+                <span>
+                  {(t.payload as { leadId?: string }).leadId ? <span className="pill warm" style={{ marginRight: 8 }}>Follow-up</span> : null}{t.shortDescription}
+                  <span className="small" style={{ display: "block", color: t.dueAt && t.dueAt.getTime() < now ? "var(--rose)" : "var(--faint)" }}>
+                    {eventName ?? ""}{t.dueAt ? `${eventName ? " · " : ""}${t.dueAt.getTime() < now ? "Overdue: was due" : "Due"} ${formatWhen(t.dueAt, DEFAULT_TIMEZONE)}` : ""}
+                  </span>
+                </span>
+                {can(me, "task.write") && (
+                  <form action={taskStateAction} style={{ marginLeft: "auto" }}>
+                    <input type="hidden" name="taskId" value={t.id} /><input type="hidden" name="state" value="done" /><input type="hidden" name="returnTo" value="/today" />
+                    <button className="ghost" type="submit">Done</button>
+                  </form>
+                )}
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
       <div className="cols">
         {decides && <section className="section">
           <h2>Needs you <small>{waiting === 0 ? "nothing waiting" : `${waiting} waiting`}</small></h2>

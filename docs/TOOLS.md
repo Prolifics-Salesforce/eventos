@@ -61,6 +61,16 @@ Generated from the code. Every change to data goes through one of these tools, w
 | `guest.request_link` | guest.portal | write | Email a guest a link to see every event they are registered for, with their passes. Says the same whether or not the email is on any guest list. |
 | `guest.sign_in` | guest.portal | write | Use the link from a guest's sign-in email. The link works once, for 30 minutes. |
 | `guest.update_profile` | guest.portal | write | A signed-in guest changing their own details and what they are sent: name, job title, phone, event emails and WhatsApp updates. |
+| `session.update` | session.write | write | Change a session: title, abstract, track, room, times or capacity. |
+| `session.remove` | session.write | write | Take a session off the agenda, with its speaker slots. The speakers stay on record as contacts. |
+| `session.remove_speaker` | session.write | write | Take a speaker off a session. |
+| `registration.set_vip` | registration.write | write | Mark a guest as someone the team wants to know has arrived, or unmark them. |
+| `template.save` | message.send | write | Save a message to start from next time. |
+| `template.remove` | message.send | write | Delete a saved message. |
+| `user.invite` | admin.manage | write | Add a person to the team and email them a link to choose their own password. With no mail server, the link is returned to be passed on by hand. |
+| `user.set_email` | admin.manage | write | Change the email a team member signs in with. |
+| `apikey.create` | admin.manage | write | Create a key that lets another program act as a team member. Shown once. |
+| `apikey.revoke` | admin.manage | write | Stop a key working, at once and for good. |
 | `contact.export` | admin.manage | read | Everything held about one person, found by email: their details, registrations, leads, survey answers, messages sent to them and notes about them. |
 | `contact.erase` | admin.manage | destructive | Remove one person, found by email, and everything held about them: registrations, leads, survey answers, messages, notes, and their details in the ledger. This cannot be undone. |
 
@@ -70,7 +80,8 @@ Generated from the code. Every change to data goes through one of these tools, w
 | --- | --- |
 | admin | all 21 |
 | organiser | event.read, event.write, event.publish, session.write, contact.read, contact.write, registration.write, checkin.write, lead.write, message.send, task.write, note.write, approval.decide, agent.run, account.self, consent.write, insights.read, audit.read |
-| sales | event.read, contact.read, contact.write, lead.write, note.write, account.self, insights.read |
+| sales | event.read, contact.read, contact.write, lead.write, note.write, account.self, insights.read, task.write |
+| viewer | event.read, contact.read, insights.read, account.self |
 | desk | event.read, contact.read, checkin.write, account.self |
 | public_site | registration.write, consent.write, account.reset, guest.portal |
 | system | message.send, task.write, agent.run |

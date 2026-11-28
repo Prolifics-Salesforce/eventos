@@ -9,6 +9,7 @@ import { event, formField } from "@/db/schema";
 import { and } from "drizzle-orm";
 import { FieldInputs } from "@/components/field-inputs";
 import { captureLeadAction } from "@/app/actions";
+import { Dictate } from "@/components/dictate";
 
 export default async function Capture({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ notice?: string; ok?: string }> }) {
   const { id } = await params;
@@ -32,6 +33,7 @@ export default async function Capture({ params, searchParams }: { params: Promis
         <label>Email<input name="email" type="email" required autoComplete="off" inputMode="email" /></label>
         <FieldInputs fields={fields} />
         <label>What did you talk about?<textarea name="notes" placeholder="What they need, when, and what you promised" /></label>
+        <Dictate field="notes" />
         <button type="submit">Save lead</button>
       </form>
     </>

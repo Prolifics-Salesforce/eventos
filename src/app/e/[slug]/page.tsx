@@ -19,9 +19,9 @@ const Pin = () => <svg width="20" height="20" viewBox="0 0 20 20" fill="none" st
  * An event's public page: its poster on one side; on the other, when and
  * where it is, the way to register, what it is about and the agenda.
  */
-export default async function PublicEvent({ params, searchParams }: { params: Promise<{ slug: string }>; searchParams: Promise<{ notice?: string; done?: string }> }) {
+export default async function PublicEvent({ params, searchParams }: { params: Promise<{ slug: string }>; searchParams: Promise<{ notice?: string; done?: string; ref?: string }> }) {
   const { slug } = await params;
-  const { notice, done } = await searchParams;
+  const { notice, done, ref } = await searchParams;
   const db = await getDb();
   const [e] = await db.select().from(event).where(eq(event.slug, slug));
   // A draft or archived event does not exist as far as the public is concerned.
@@ -65,6 +65,12 @@ export default async function PublicEvent({ params, searchParams }: { params: Pr
                 {e.startsAt && <span>{clock(e.startsAt)}{e.endsAt ? ` to ${clock(e.endsAt)}` : ""} · {e.timezone.replace(/_/g, " ")}</span>}
               </div>
             </div>
+            {e.onlineUrl && (
+              <div className="tile">
+                <div className="ico"><svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="2.5" y="5" width="10.5" height="10" rx="2.5" /><path d="M13 9l4.5-2.5v7L13 11" /></svg></div>
+                <div><b>{e.venue ? "Also online" : "Online"}</b><span>The link to join is on your pass once you have a place</span></div>
+              </div>
+            )}
             {e.venue && (
               <div className="tile">
                 <div className="ico"><Pin /></div>
@@ -95,6 +101,7 @@ export default async function PublicEvent({ params, searchParams }: { params: Pr
                   {full && !e.requireApproval && <div className="notice quiet">Every place is taken. Join the waitlist and we will email you if one opens.</div>}
                   <form action={registerGuestAction} className="stack">
                     <input type="hidden" name="eventSlug" value={e.slug} />
+                    {ref && /^REG\d{1,12}$/i.test(ref) && <input type="hidden" name="ref" value={ref.toUpperCase()} />}
                     <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
                       <label>First name<input name="firstName" required autoComplete="given-name" /></label>
                       <label>Last name<input name="lastName" autoComplete="family-name" /></label>

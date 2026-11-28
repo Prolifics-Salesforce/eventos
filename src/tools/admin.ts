@@ -1,7 +1,9 @@
 import { and, count, eq, isNull, like, ne, sql } from "drizzle-orm";
 import { z } from "zod";
 import { createHash, randomBytes } from "node:crypto";
-import { sysPolicy, sysProperty, sysRole, sysSession, sysUser, sysUserRole, webhook } from "@/db/schema";
+import { sysApiKey, sysPolicy, sysProperty, sysRole, sysSession, sysUser, sysUserRole, webhook } from "@/db/schema";
+import { createApiKey } from "@/platform/principal";
+import { emailIsSetUp } from "./portal";
 import { hashPassword, verifyPassword } from "@/platform/auth";
 import { HUMAN_ROLES } from "@/platform/permissions";
 import { appUrl } from "@/platform/properties";
@@ -219,5 +221,74 @@ export const accountResetPassword = defineTool({
     await ctx.db.update(sysUser).set({ passwordHash: hashPassword(password) }).where(eq(sysUser.id, who.id));
     await ctx.db.delete(sysSession).where(eq(sysSession.userId, who.id));
     return { reset: true };
+  },
+});
+
+const INVITE_DAYS = 7;
+
+export const userInvite = defineTool({
+  name: "user.invite",
+  description: "Add a person to the team and email them a link to choose their own password, so nobody else ever knows it. On a site with no mail server, the link is returned to be passed on by hand.",
+  permission: "admin.manage",
+  risk: "write",
+  redact: ["link"],
+  input: z.object({ name: z.string().trim().min(2).max(80), email: z.string().trim().toLowerCase().pipe(z.email()), role: z.enum(HUMAN_ROLES) }),
+  async handler(ctx, { name, email, role }): Promise<{ id: string; email: string; role: string; link?: string }> {
+    const [taken] = await ctx.db.select({ id: sysUser.id }).from(sysUser).where(eq(sysUser.email, email));
+    if (taken) throw new ToolError("exists", "Someone with that email is already on the team");
+    const id = await createUser(ctx.db, { name, email, kind: "human", roles: [role] });
+    const token = randomBytes(32).toString("base64url");
+    await ctx.db.insert(sysProperty).values({ key: resetKey(token), value: JSON.stringify({ userId: id, until: Date.now() + INVITE_DAYS * 86_400_000 }) });
+    const link = `${appUrl()}/reset/${token}`;
+    await ctx.enqueue({
+      channel: "email", recipient: email, subject: "You have been added to the events team",
+      body: [`Hi ${name.split(" ")[0]},`, "", `${ctx.principal.name} has added you to the events team as ${/^[aeiou]/.test(role) ? "an" : "a"} ${role}.`, "Choose your password to get started:", link, "", `The link works once, for ${INVITE_DAYS} days.`].join("\n"),
+    });
+    return { id, email, role, ...(emailIsSetUp() ? {} : { link }) };
+  },
+});
+
+export const userSetEmail = defineTool({
+  name: "user.set_email",
+  description: "Change the email a team member signs in with. Their password stays the same.",
+  permission: "admin.manage",
+  risk: "write",
+  input: z.object({ userId: z.uuid(), email: z.string().trim().toLowerCase().pipe(z.email()) }),
+  async handler(ctx, { userId, email }) {
+    const [who] = await ctx.db.select({ kind: sysUser.kind }).from(sysUser).where(eq(sysUser.id, userId));
+    if (who?.kind !== "human") throw new ToolError("not_found", "No such person");
+    const [taken] = await ctx.db.select({ id: sysUser.id }).from(sysUser).where(and(eq(sysUser.email, email), ne(sysUser.id, userId)));
+    if (taken) throw new ToolError("exists", "Someone else on the team already uses that email");
+    await ctx.db.update(sysUser).set({ email }).where(eq(sysUser.id, userId));
+    return { userId, email };
+  },
+});
+
+export const apiKeyCreate = defineTool({
+  name: "apikey.create",
+  description: "Create a key that lets another program act as a team member, with that person's role. The key is shown once and cannot be read again.",
+  permission: "admin.manage",
+  risk: "write",
+  redact: ["key"],
+  input: z.object({ name: z.string().trim().min(2).max(80), userId: z.uuid().optional().describe("Whose role the key carries. Leave out for your own") }),
+  async handler(ctx, { name, userId }) {
+    const owner = userId ?? ctx.principal.id;
+    const [who] = await ctx.db.select({ kind: sysUser.kind, active: sysUser.active }).from(sysUser).where(eq(sysUser.id, owner));
+    if (!who || who.kind !== "human" || !who.active) throw new ToolError("not_found", "No such active person");
+    const key = await createApiKey(ctx.db, owner, name);
+    return { key, name };
+  },
+});
+
+export const apiKeyRevoke = defineTool({
+  name: "apikey.revoke",
+  description: "Stop a key working, at once and for good.",
+  permission: "admin.manage",
+  risk: "write",
+  input: z.object({ keyId: z.uuid() }),
+  async handler(ctx, { keyId }) {
+    const rows = await ctx.db.update(sysApiKey).set({ revokedAt: new Date() }).where(and(eq(sysApiKey.id, keyId), isNull(sysApiKey.revokedAt))).returning({ id: sysApiKey.id });
+    if (rows.length === 0) throw new ToolError("not_found", "No such working key");
+    return { revoked: true };
   },
 });

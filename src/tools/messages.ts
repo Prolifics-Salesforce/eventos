@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { and, eq, gt, inArray, isNotNull, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 import type { Db } from "@/db/client";
-import { contact, event, registration, sysOutbox } from "@/db/schema";
+import { contact, event, registration, sysOutbox, sysProperty } from "@/db/schema";
 import { appUrl, signedToken } from "@/platform/properties";
 import { defineTool, ToolError } from "@/platform/tools";
 
@@ -132,5 +132,31 @@ export const campaignUnschedule = defineTool({
       .where(and(eq(sysOutbox.eventId, eventId), eq(sysOutbox.status, "pending"), sql`${sysOutbox.meta}->>'campaign' = ${key}`, gt(sysOutbox.nextAttemptAt, new Date())))
       .returning({ id: sysOutbox.id });
     return { stopped: rows.length };
+  },
+});
+
+export const templateSave = defineTool({
+  name: "template.save",
+  description: "Save a message to start from next time: a name, a subject and the text, with the same {{first_name}}-style fields a campaign takes.",
+  permission: "message.send",
+  risk: "write",
+  input: z.object({ name: z.string().trim().min(2).max(80), subject: z.string().max(200).optional(), body: z.string().min(1).max(8000) }),
+  async handler(ctx, input) {
+    const id = randomUUID();
+    await ctx.db.insert(sysProperty).values({ key: `template:${id}`, value: JSON.stringify(input) });
+    return { id };
+  },
+});
+
+export const templateRemove = defineTool({
+  name: "template.remove",
+  description: "Delete a saved message. Messages already sent from it are not affected.",
+  permission: "message.send",
+  risk: "write",
+  input: z.object({ templateId: z.uuid() }),
+  async handler(ctx, { templateId }) {
+    const rows = await ctx.db.delete(sysProperty).where(eq(sysProperty.key, `template:${templateId}`)).returning({ key: sysProperty.key });
+    if (rows.length === 0) throw new ToolError("not_found", "No such saved message");
+    return { removed: true };
   },
 });

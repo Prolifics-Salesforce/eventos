@@ -24,6 +24,11 @@ export default async function Desk({ params, searchParams }: { params: Promise<{
     .orderBy(desc(registration.checkedInAt), contact.firstName).limit(30);
   const all = await db.select({ at: registration.checkedInAt }).from(registration).where(eq(registration.eventId, id));
   const back = `/events/${id}/desk${term ? `?q=${encodeURIComponent(term)}` : ""}`;
+  // How many arrived in each hour, in the event's own time, so the rush can be seen as it builds.
+  const byHour = new Map<string, number>();
+  for (const x of all) if (x.at) { const h = new Intl.DateTimeFormat("en-GB", { timeZone: e.timezone, hour: "2-digit", hourCycle: "h23" }).format(x.at); byHour.set(h, (byHour.get(h) ?? 0) + 1); }
+  const arrivals = [...byHour].sort(([a], [b]) => a.localeCompare(b));
+  const peak = Math.max(1, ...arrivals.map(([, n]) => n));
   return (
     <>
       <div className="progress">
@@ -31,6 +36,16 @@ export default async function Desk({ params, searchParams }: { params: Promise<{
         <div className="big" style={{ marginTop: 8 }}>{all.filter((x) => x.at).length} <em>of {all.length} checked in</em></div>
         <div className="meter"><i style={{ width: `${all.length ? (all.filter((x) => x.at).length / all.length) * 100 : 0}%` }} /></div>
       </div>
+      {arrivals.length > 1 && (
+        <div style={{ display: "flex", gap: 6, alignItems: "flex-end", height: 62, margin: "2px 0 14px" }} aria-label="Arrivals by hour">
+          {arrivals.map(([hour, n]) => (
+            <div key={hour} style={{ flex: 1, textAlign: "center" }} title={`${n} arrived in the hour from ${hour}:00`}>
+              <div style={{ height: `${Math.max(4, (n / peak) * 36)}px`, borderRadius: 5, background: "linear-gradient(var(--mint), #7ad7ff)" }} />
+              <div className="small faint" style={{ fontSize: 11, marginTop: 3 }}>{hour}h · {n}</div>
+            </div>
+          ))}
+        </div>
+      )}
       {notice && <div className="notice">{notice}</div>}
       {ok && <div className="notice good">{ok}</div>}
       <QrScanner action={scanCheckInAction} eventId={id} auto={scan === "1"} />
@@ -50,11 +65,11 @@ export default async function Desk({ params, searchParams }: { params: Promise<{
       </details>
       {guests.length === 0 ? <div className="empty">{term ? "Nobody matches that." : "Nobody is registered yet."}</div> : guests.map(({ r, c }) => (
         <div className="guest" key={r.id}>
-          <div><b>{c.firstName} {c.lastName}</b><span className="small muted">{c.email}</span></div>
+          <div><b>{c.firstName} {c.lastName} {r.vip && <span className="pill hot">VIP</span>}</b><span className="small muted">{c.email}</span></div>
           {r.checkedInAt ? (
             <form action={undoCheckInAction} className="actions">
               <input type="hidden" name="eventId" value={id} /><input type="hidden" name="registrationId" value={r.id} /><input type="hidden" name="returnTo" value={back} />
-              <span className="pill attended">In, PIN {r.pin}</span><button type="submit" className="link">Undo</button>
+              <span className="pill attended">In, PIN {r.pin}</span><Link className="small" href={`/events/${id}/badges?only=${r.id}`} target="_blank">Badge</Link><button type="submit" className="link">Undo</button>
             </form>
           ) : r.status === "pending" ? <span className="pill held">Not approved yet</span> : r.status === "cancelled" || r.status === "declined" ? <span className="pill">{r.status}</span> : (
             <form action={checkInAction}>

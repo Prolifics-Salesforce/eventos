@@ -16,12 +16,13 @@ export const taskCreate = defineTool({
     assignedTo: z.uuid().optional(),
     dueAt: z.iso.datetime({ offset: true }).optional(),
     priority: z.number().int().min(1).max(5).default(3),
+    leadId: z.uuid().optional().describe("Ties the to-do to a lead, as a follow-up"),
   }),
-  async handler(ctx, { dueAt, ...input }) {
+  async handler(ctx, { dueAt, leadId, ...input }) {
     const [row] = await ctx.db
       .insert(task)
       .values({
-        ...input, dueAt: dueAt ? new Date(dueAt) : null, number: await nextNumber(ctx.db, "TASK"),
+        ...input, dueAt: dueAt ? new Date(dueAt) : null, number: await nextNumber(ctx.db, "TASK"), payload: leadId ? { leadId } : {},
         createdBy: ctx.principal.id, updatedBy: ctx.principal.id,
       })
       .returning({ id: task.id, number: task.number });

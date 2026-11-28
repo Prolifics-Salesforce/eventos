@@ -87,6 +87,7 @@ Links to: account
 | confirmation_note | text |  |  |
 | reminders | boolean | yes | true |
 | feedback_email | boolean | yes | false |
+| online_url | text |  |  |
 
 ## event_session
 
@@ -170,6 +171,8 @@ Links to: event, contact
 | pin | text |  |  |
 | checked_in_at | timestamp with time zone |  |  |
 | checked_in_by | uuid |  |  |
+| vip | boolean | yes | false |
+| referred_by | uuid |  |  |
 
 Links to: event, contact
 

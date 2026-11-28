@@ -20,7 +20,9 @@ const without = (...drop: Permission[]) => all.filter((p) => !drop.includes(p));
 export const DEFAULT_ROLES: Record<string, Permission[]> = {
   admin: all,
   organiser: without("admin.manage", "account.reset", "guest.portal"),
-  sales: ["event.read", "contact.read", "contact.write", "lead.write", "note.write", "account.self", "insights.read"],
+  sales: ["event.read", "contact.read", "contact.write", "lead.write", "note.write", "account.self", "insights.read", "task.write"],
+  /** Looks, and changes nothing: a manager, a finance colleague, an agency partner. */
+  viewer: ["event.read", "contact.read", "insights.read", "account.self"],
   desk: ["event.read", "contact.read", "checkin.write", "account.self"],
   /** The public registration page acts as this service account. */
   public_site: ["registration.write", "consent.write", "account.reset", "guest.portal"],
@@ -35,4 +37,4 @@ export const DEFAULT_ROLES: Record<string, Permission[]> = {
 };
 
 /** Roles a person can be given from the Team screen. */
-export const HUMAN_ROLES = ["admin", "organiser", "sales", "desk"] as const;
+export const HUMAN_ROLES = ["admin", "organiser", "sales", "desk", "viewer"] as const;

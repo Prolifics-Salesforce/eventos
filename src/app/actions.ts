@@ -53,7 +53,7 @@ function done(path: string, result: InvokeResult, ok?: string): never {
 /** Where to go back to. Only paths inside the console are accepted, never a full URL. */
 function returnTo(form: FormData, fallback: string): string {
   const value = text(form, "returnTo");
-  return value && /^\/(events|inbox|runs|agents|team)[\w\-/?=&%.+]*$/.test(value) ? value : fallback;
+  return value && /^\/(events|inbox|runs|agents|team|today)[\w\-/?=&%.+]*$/.test(value) ? value : fallback;
 }
 
 // Five wrong passwords for one email locks sign-in for that email for 15 minutes. Counted in the database, so every process agrees.
@@ -117,8 +117,8 @@ export async function addGuestAction(form: FormData) {
 
 export async function checkInAction(form: FormData) {
   const principal = await requirePrincipal();
-  const result = await invoke<{ pin: string }>(await getDb(), principal, "registration.check_in", { registrationId: text(form, "registrationId") });
-  done(returnTo(form, `/events/${text(form, "eventId")}`), result, result.status === "ok" ? `Checked in. PIN ${result.output.pin}` : undefined);
+  const result = await invoke<{ pin: string; vip?: boolean }>(await getDb(), principal, "registration.check_in", { registrationId: text(form, "registrationId") });
+  done(returnTo(form, `/events/${text(form, "eventId")}`), result, result.status === "ok" ? `${result.output.vip ? "VIP guest. Let their host know. " : ""}Checked in. PIN ${result.output.pin}` : undefined);
 }
 
 export async function addSessionAction(form: FormData) {
@@ -163,7 +163,10 @@ export async function taskStateAction(form: FormData) {
 export async function addTaskAction(form: FormData) {
   const principal = await requirePrincipal();
   const eventId = text(form, "eventId")!;
-  done(returnTo(form, `/events/${eventId}`), await invoke(await getDb(), principal, "task.create", { eventId, shortDescription: text(form, "shortDescription") }));
+  const due = text(form, "dueAt");
+  done(returnTo(form, `/events/${eventId}`), await invoke(await getDb(), principal, "task.create", {
+    eventId, shortDescription: text(form, "shortDescription"), dueAt: due ? zonedToIso(due, text(form, "timezone") ?? DEFAULT_TIMEZONE) : undefined,
+  }));
 }
 
 export async function runAgentAction(form: FormData) {
@@ -212,6 +215,7 @@ export async function registerGuestAction(form: FormData) {
   const result = await invoke<{ status: string; registrationId?: string }>(db, await servicePrincipal(db, "Public site"), "registration.register_guest", {
     eventSlug: slug, email: text(form, "email"), firstName: text(form, "firstName"), lastName: text(form, "lastName"),
     phone: text(form, "phone"), whatsappOptIn: form.get("whatsappOptIn") === "on", answers: answersFrom(form),
+    referredBy: /^REG\d{1,12}$/i.test(text(form, "ref") ?? "") ? text(form, "ref") : undefined,
   });
   deliverSoon();
   // Someone who has just registered is shown their pass straight away, rather than being told to wait for an email.
@@ -241,6 +245,10 @@ export async function campaignAction(form: FormData) {
     eventId, segment: text(form, "segment"), channel: text(form, "channel"), subject: text(form, "subject"), body: text(form, "body"), key: text(form, "key"),
     sendAt: text(form, "sendAt") ? zonedToIso(text(form, "sendAt")!, text(form, "timezone") ?? DEFAULT_TIMEZONE) : undefined,
   });
+  // Ticking "keep this message" saves it for next time as well as sending it.
+  if (result.status === "ok" && text(form, "templateName")) {
+    await invoke(await getDb(), principal, "template.save", { name: text(form, "templateName"), subject: text(form, "subject"), body: text(form, "body") });
+  }
   done(returnTo(form, `/events/${eventId}`), result, result.status === "ok" ? `${text(form, "sendAt") ? "Scheduled" : "Queued"} for ${result.output.queued} guest(s); ${result.output.skipped} skipped for lack of consent${text(form, "key") && result.output.queued === 0 ? ". Everyone on the list has already had this invitation." : ""}` : undefined);
 }
 
@@ -431,7 +439,7 @@ export async function updateDetailsAction(form: FormData) {
   const timezone = text(form, "timezone") ?? DEFAULT_TIMEZONE;
   const when = (key: string) => { const v = text(form, key); return v ? zonedToIso(v, timezone) : null; };
   done(returnTo(form, `/events/${eventId}`), await invoke(await getDb(), principal, "event.update", {
-    eventId, name: text(form, "name"), slug: text(form, "slug"), startsAt: when("startsAt"), endsAt: when("endsAt"), hostName: text(form, "hostName") ?? null,
+    eventId, name: text(form, "name"), slug: text(form, "slug"), startsAt: when("startsAt"), endsAt: when("endsAt"), hostName: text(form, "hostName") ?? null, onlineUrl: text(form, "onlineUrl") ?? null,
     venue: text(form, "venue") ?? null, locationUrl: text(form, "locationUrl") ?? null, coverImageUrl: text(form, "coverImageUrl") ?? null,
     description: text(form, "description")?.replace(/\r\n/g, "\n") ?? null, brief: text(form, "brief")?.replace(/\r\n/g, "\n") ?? null,
   }), "Saved");
@@ -536,8 +544,8 @@ export async function bulkGuestsAction(form: FormData) {
 export async function scanCheckInAction(form: FormData) {
   const principal = await requirePrincipal();
   const eventId = text(form, "eventId")!;
-  const result = await invoke<{ name: string; pin: string; alreadyCheckedIn: boolean }>(await getDb(), principal, "registration.check_in_by_number", { eventId, number: text(form, "number") });
-  done(`/events/${eventId}/desk?scan=1`, result, result.status === "ok" ? `${result.output.name}: ${result.output.alreadyCheckedIn ? "already checked in" : "checked in"}. PIN ${result.output.pin}` : undefined);
+  const result = await invoke<{ name: string; pin: string; alreadyCheckedIn: boolean; vip?: boolean }>(await getDb(), principal, "registration.check_in_by_number", { eventId, number: text(form, "number") });
+  done(`/events/${eventId}/desk?scan=1`, result, result.status === "ok" ? `${result.output.vip ? "VIP guest. Let their host know. " : ""}${result.output.name}: ${result.output.alreadyCheckedIn ? "already checked in" : "checked in"}. PIN ${result.output.pin}` : undefined);
 }
 
 /* Forgotten passwords. Nobody is signed in, so these run as the Public site account. */
@@ -618,4 +626,75 @@ export async function guestProfileAction(form: FormData) {
     phone: text(form, "phone") ?? null, emailUpdates: form.get("emailUpdates") === "on", whatsappOptIn: form.get("whatsappOptIn") === "on",
   });
   redirect(result.status === "ok" ? `/my?tab=profile&ok=${encodeURIComponent("Saved")}` : `/my?tab=profile&notice=${encodeURIComponent(explain(result))}`);
+}
+
+/* Sessions on the agenda */
+
+export async function updateSessionAction(form: FormData) {
+  const principal = await requirePrincipal();
+  const eventId = text(form, "eventId")!;
+  const startsAt = text(form, "startsAt");
+  done(returnTo(form, `/events/${eventId}`), await invoke(await getDb(), principal, "session.update", {
+    sessionId: text(form, "sessionId"), title: text(form, "title"), track: text(form, "track") ?? null, room: text(form, "room") ?? null,
+    startsAt: startsAt ? zonedToIso(startsAt, text(form, "timezone") ?? DEFAULT_TIMEZONE) : null,
+  }), "Session saved");
+}
+
+export async function removeSessionAction(form: FormData) {
+  const principal = await requirePrincipal();
+  done(returnTo(form, `/events/${text(form, "eventId")}`), await invoke(await getDb(), principal, "session.remove", { sessionId: text(form, "sessionId") }), "Session removed");
+}
+
+export async function removeSpeakerAction(form: FormData) {
+  const principal = await requirePrincipal();
+  done(returnTo(form, `/events/${text(form, "eventId")}`), await invoke(await getDb(), principal, "session.remove_speaker", { sessionId: text(form, "sessionId"), contactId: text(form, "contactId") }), "Speaker removed");
+}
+
+export async function setVipAction(form: FormData) {
+  const principal = await requirePrincipal();
+  done(returnTo(form, `/events/${text(form, "eventId")}`), await invoke(await getDb(), principal, "registration.set_vip", { registrationId: text(form, "registrationId"), vip: text(form, "vip") === "true" }));
+}
+
+/** A reminder to yourself to get back to a lead, due at the end of the day chosen. */
+export async function followUpAction(form: FormData) {
+  const principal = await requirePrincipal();
+  const eventId = text(form, "eventId")!;
+  const day = text(form, "dueOn");
+  done(returnTo(form, `/events/${eventId}`), await invoke(await getDb(), principal, "task.create", {
+    eventId, leadId: text(form, "leadId"), assignedTo: principal.id, shortDescription: text(form, "shortDescription"),
+    dueAt: day ? zonedToIso(`${day}T18:00`, text(form, "timezone") ?? DEFAULT_TIMEZONE) : undefined,
+  }), "Follow-up added");
+}
+
+export async function removeTemplateAction(form: FormData) {
+  const principal = await requirePrincipal();
+  done(returnTo(form, `/events/${text(form, "eventId")}`), await invoke(await getDb(), principal, "template.remove", { templateId: text(form, "templateId") }), "Saved message deleted");
+}
+
+/* The team */
+
+export async function inviteUserAction(form: FormData) {
+  const principal = await requirePrincipal();
+  const result = await invoke<{ link?: string }>(await getDb(), principal, "user.invite", { name: text(form, "name"), email: text(form, "email"), role: text(form, "role") });
+  deliverSoon();
+  // With no mail server the link cannot be emailed, so it is shown once to the administrator to pass on.
+  if (result.status === "ok" && result.output.link) (await cookies()).set("eventos_flash", result.output.link, { httpOnly: true, sameSite: "strict", path: "/team", maxAge: 60 });
+  done("/team", result, result.status === "ok" ? (result.output.link ? "Invited" : "Invited. They have been emailed a link to choose their password.") : undefined);
+}
+
+export async function setEmailAction(form: FormData) {
+  const principal = await requirePrincipal();
+  done("/team", await invoke(await getDb(), principal, "user.set_email", { userId: text(form, "userId"), email: text(form, "email") }), "Email changed");
+}
+
+export async function apiKeyCreateAction(form: FormData) {
+  const principal = await requirePrincipal();
+  const result = await invoke<{ key: string }>(await getDb(), principal, "apikey.create", { name: text(form, "name") });
+  if (result.status === "ok") (await cookies()).set("eventos_flash", result.output.key, { httpOnly: true, sameSite: "strict", path: "/settings", maxAge: 60 });
+  done("/settings", result, "Key created");
+}
+
+export async function apiKeyRevokeAction(form: FormData) {
+  const principal = await requirePrincipal();
+  done("/settings", await invoke(await getDb(), principal, "apikey.revoke", { keyId: text(form, "keyId") }), "Key revoked");
 }

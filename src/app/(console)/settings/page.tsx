@@ -1,8 +1,9 @@
 import { cookies } from "next/headers";
 import { desc } from "drizzle-orm";
 import { getDb } from "@/db/client";
-import { webhook } from "@/db/schema";
-import { erasePersonAction, playbookAction, webhookCreateAction, webhookRemoveAction } from "@/app/actions";
+import { eq } from "drizzle-orm";
+import { sysApiKey, sysUser, webhook } from "@/db/schema";
+import { apiKeyCreateAction, apiKeyRevokeAction, erasePersonAction, playbookAction, webhookCreateAction, webhookRemoveAction } from "@/app/actions";
 import { requirePrincipal } from "@/lib/session";
 import { getProperty } from "@/platform/properties";
 
@@ -12,13 +13,14 @@ export default async function Settings({ searchParams }: { searchParams: Promise
   if (!me.permissions.has("admin.manage")) return <><div className="head"><div><h1>Settings</h1></div></div><div className="notice quiet">Only an administrator can see or change these settings.</div></>;
   const db = await getDb();
   const [playbook, hooks] = await Promise.all([getProperty(db, "playbook"), db.select().from(webhook).orderBy(desc(webhook.createdAt))]);
-  const secret = ok === "Connected" ? (await cookies()).get("eventos_flash")?.value : undefined;
+  const secret = ok === "Connected" || ok === "Key created" ? (await cookies()).get("eventos_flash")?.value : undefined;
+  const keys = await db.select({ k: sysApiKey, owner: sysUser.name }).from(sysApiKey).leftJoin(sysUser, eq(sysUser.id, sysApiKey.userId)).orderBy(desc(sysApiKey.createdAt));
   return (
     <>
       <div className="head"><div><h1>Settings</h1><p className="muted">How your organisation works, and which other systems are kept informed. Administrators only.</p></div></div>
       {notice && <div className="notice">{notice}</div>}
       {ok && <div className="notice good">{ok}</div>}
-      {secret && <div className="notice quiet" style={{ borderColor: "var(--amber)" }}>Signing secret, shown once. Copy it into the receiving system now: <code style={{ color: "var(--ink)", userSelect: "all" }}>{secret}</code></div>}
+      {secret && <div className="notice quiet" style={{ borderColor: "var(--amber)" }}>{ok === "Key created" ? "Your new key, shown once. Copy it now; it cannot be shown again:" : "Signing secret, shown once. Copy it into the receiving system now:"} <code style={{ color: "var(--ink)", userSelect: "all" }}>{secret}</code></div>}
       <div className="cols">
         <section className="section">
           <h2>Playbook <small>read by every agent before it works</small></h2>
@@ -45,6 +47,22 @@ export default async function Settings({ searchParams }: { searchParams: Promise
           )}
         </section>
       </div>
+      <section className="section" style={{ maxWidth: 720 }}>
+        <h2>API keys <small>for other programs and assistants</small></h2>
+        <p className="small muted" style={{ marginTop: 0 }}>A key lets another program work here as you, with your role. Anything it does is recorded in Activity under your name.</p>
+        <form action={apiKeyCreateAction} className="row" style={{ marginBottom: 16 }}>
+          <label style={{ flex: 1 }}>What is this key for?<input name="name" required minLength={2} maxLength={80} placeholder="CRM sync" /></label>
+          <button type="submit" className="ghost">Create a key</button>
+        </form>
+        {keys.length === 0 ? <div className="empty">No keys yet.</div> : (
+          <div className="feed">{keys.map(({ k, owner }) => (
+            <div key={k.id} style={{ alignItems: "center" }}>
+              <span><span style={{ fontWeight: 500 }}>{k.name}</span><span className="small muted" style={{ display: "block" }}>Acts as {owner ?? "someone removed"} · created {new Intl.DateTimeFormat("en-IN", { dateStyle: "medium" }).format(k.createdAt)}</span></span>
+              {k.revokedAt ? <span className="pill" style={{ marginLeft: "auto" }}>revoked</span> : <form action={apiKeyRevokeAction} style={{ marginLeft: "auto" }}><input type="hidden" name="keyId" value={k.id} /><button className="ghost" type="submit">Revoke</button></form>}
+            </div>
+          ))}</div>
+        )}
+      </section>
       <section className="section" style={{ maxWidth: 560 }}>
         <h2>A person's data <small>privacy requests</small></h2>
         <p className="small muted" style={{ marginTop: 0 }}>When someone asks what you hold about them, or asks to be removed. Find them by the email they registered with.</p>

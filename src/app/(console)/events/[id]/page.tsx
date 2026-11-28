@@ -1,11 +1,12 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { and, asc, count, desc, eq, gt, ilike, inArray, min, or, sql } from "drizzle-orm";
+import { and, asc, count, desc, eq, gt, ilike, inArray, isNotNull, like as likeOp, min, or, sql } from "drizzle-orm";
 import { getDb } from "@/db/client";
-import { budgetItem, contact, event, eventSession, formField, lead, surveyResponse, registration, sessionSpeaker, sysJournal, sysOutbox, sysUser, task, type EventStatus, type RegistrationStatus } from "@/db/schema";
+import { budgetItem, contact, event, eventSession, formField, lead, surveyResponse, registration, sessionSpeaker, sysJournal, sysOutbox, sysProperty, sysUser, task, type EventStatus, type RegistrationStatus } from "@/db/schema";
 import {
   addFieldAction, addGuestAction, addSessionAction, addSpeakerAction, addTaskAction, budgetItemAction, campaignAction, cancelRegistrationAction, captureLeadAction,
   checkInAction, cloneEventAction, importGuestsAction, leadValueAction, removeBudgetAction, removeFieldAction, runAgentAction, setStatusAction, taskStateAction, updateEventAction, updateLocaleAction,
+  followUpAction, removeSessionAction, removeSpeakerAction, removeTemplateAction, setVipAction, updateSessionAction,
   bulkGuestsAction, cancelEventAction, decideGuestAction, undoCheckInAction, unscheduleAction, updateDetailsAction, updateEmailsAction, updateGuestAction,
 } from "@/app/actions";
 import { ago, countdown } from "@/lib/describe";
@@ -32,9 +33,13 @@ const PROMPTS = {
   Outreach: "Remind everyone who has not checked in about the agenda",
 };
 
-export default async function EventPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ notice?: string; ok?: string; tab?: string; q?: string; status?: string; page?: string; edit?: string }> }) {
+export default async function EventPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ notice?: string; ok?: string; tab?: string; q?: string; status?: string; page?: string; edit?: string; lq?: string; band?: string; mine?: string; template?: string }> }) {
   const { id } = await params;
-  const { notice, ok, tab: asked, q: asksFor = "", status: asksStatus = "", page: asksPage, edit } = await searchParams;
+  const { notice, ok, tab: asked, q: asksFor = "", status: asksStatus = "", page: asksPage, edit, lq: asksLead = "", band: asksBand = "", mine: asksMine, template: asksTemplate } = await searchParams;
+  // The lead list: what is searched for, which band, and whether only the ones I captured.
+  const leadTerm = asksLead.trim().slice(0, 80);
+  const leadBand = (["hot", "warm", "cold"] as const).find((b) => b === asksBand) ?? null;
+  const leadLike = `%${leadTerm.replace(/[%_\\]/g, "\\$&")}%`;
   // The guest table: what is searched for, which status is shown, and which page of 50.
   const PAGE = 50;
   const term = asksFor.trim().slice(0, 80);
@@ -54,13 +59,18 @@ export default async function EventPage({ params, searchParams }: { params: Prom
     term ? or(ilike(contact.firstName, like), ilike(contact.lastName, like), ilike(contact.email, like), ilike(registration.number, like)) : undefined,
     only ? eq(registration.status, only) : undefined,
   );
-  const [fields, guests, sessions, leads, tasks, notes, messages, speakers, ins, budget, comments, [matching], scheduled, [editing]] = await Promise.all([
+  const [fields, guests, sessions, leads, tasks, notes, messages, speakers, ins, budget, comments, [matching], scheduled, [editing], saved, referrers] = await Promise.all([
     db.select().from(formField).where(eq(formField.eventId, id)).orderBy(asc(formField.position)),
     db.select({ r: registration, c: contact }).from(registration).innerJoin(contact, eq(contact.id, registration.contactId))
       .where(guestWhere).orderBy(desc(registration.createdAt)).limit(PAGE).offset((pageNo - 1) * PAGE),
     db.select().from(eventSession).where(eq(eventSession.eventId, id)).orderBy(asc(eventSession.startsAt)),
     db.select({ l: lead, c: contact }).from(lead).innerJoin(contact, eq(contact.id, lead.contactId))
-      .where(eq(lead.eventId, id)).orderBy(desc(lead.score), desc(lead.createdAt)),
+      .where(and(
+        eq(lead.eventId, id),
+        leadTerm ? or(ilike(contact.firstName, leadLike), ilike(contact.lastName, leadLike), ilike(contact.email, leadLike), ilike(lead.notes, leadLike)) : undefined,
+        leadBand ? eq(lead.band, leadBand) : undefined,
+        asksMine ? eq(lead.capturedBy, me.id) : undefined,
+      )).orderBy(desc(lead.score), desc(lead.createdAt)),
     db.select().from(task).where(and(eq(task.eventId, id), eq(task.taskType, "task"))).orderBy(asc(task.createdAt)),
     db.select({ n: sysJournal, author: sysUser.name, kind: sysUser.kind }).from(sysJournal).leftJoin(sysUser, eq(sysUser.id, sysJournal.authorId))
       .where(and(eq(sysJournal.tableName, "event"), eq(sysJournal.recordId, id))).orderBy(desc(sysJournal.id)).limit(8),
@@ -76,14 +86,21 @@ export default async function EventPage({ params, searchParams }: { params: Prom
       .where(and(eq(sysOutbox.eventId, id), eq(sysOutbox.status, "pending"), gt(sysOutbox.nextAttemptAt, new Date()), sql`${sysOutbox.meta}->>'campaign' is not null`))
       .groupBy(sql`${sysOutbox.meta}->>'campaign'`).orderBy(min(sysOutbox.nextAttemptAt)),
     edit && /^[0-9a-f-]{36}$/i.test(edit) ? db.select({ r: registration, c: contact }).from(registration).innerJoin(contact, eq(contact.id, registration.contactId)).where(and(eq(registration.id, edit), eq(registration.eventId, id))) : [],
+    // Messages saved to start from, for the Messages tab.
+    asked === "messages" ? db.select().from(sysProperty).where(likeOp(sysProperty.key, "template:%")).orderBy(desc(sysProperty.createdAt)) : [],
+    // Guests whose own invitation link brought others in.
+    wantsInsights ? db.select({ id: registration.referredBy, n: count() }).from(registration).where(and(eq(registration.eventId, id), isNotNull(registration.referredBy))).groupBy(registration.referredBy) : [],
   ]);
+  const templates = saved.map((row) => ({ id: row.key.slice("template:".length), ...(JSON.parse(row.value) as { name: string; subject?: string; body: string }) }));
+  const starting = templates.find((t) => t.id === asksTemplate);
+  const referrerNames = referrers.length ? await db.select({ id: registration.id, firstName: contact.firstName, lastName: contact.lastName }).from(registration).innerJoin(contact, eq(contact.id, registration.contactId)).where(inArray(registration.id, referrers.map((r) => r.id!))) : [];
 
   // A tab a person's role does not include is not offered, and asking for it by address shows the overview instead.
   const tabs: { key: string; label: string; n?: number }[] = [
     { key: "overview", label: "Overview" },
     ...(can(me, "contact.read") ? [{ key: "guests", label: "Guests", n: ins.funnel.onList }] : []),
     ...(e.kind === "conference" ? [{ key: "agenda", label: "Agenda", n: sessions.length }] : []),
-    ...(can(me, "contact.read") ? [{ key: "leads", label: "Leads", n: leads.length }] : []),
+    ...(can(me, "contact.read") ? [{ key: "leads", label: "Leads", n: ins.leads.total }] : []),
     ...(can(me, "message.send") ? [{ key: "messages", label: "Messages" }] : []),
     ...(can(me, "insights.read") ? [{ key: "insights", label: "Insights" }] : []),
     ...(can(me, "event.write") ? [{ key: "setup", label: "Setup" }] : []),
@@ -99,7 +116,8 @@ export default async function EventPage({ params, searchParams }: { params: Prom
   const awaiting = ins.funnel.awaitingReply;
   const toApprove = ins.funnel.awaitingApproval;
   const STATUS: Record<string, string> = { invited: "awaiting reply", pending: "awaiting approval", registered: "registered", waitlisted: "on the waitlist", declined: "declined", cancelled: "cancelled", attended: "checked in", no_show: "no show" };
-  const hot = leads.filter((x) => x.l.band === "hot").length;
+  const hot = ins.leads.hot;
+  const due = (d: Date | null) => (d ? `${d.getTime() < Date.now() ? "Overdue: was due" : "Due"} ${formatWhen(d, e.timezone)}` : "");
   const open = tasks.filter((t) => t.state !== "done" && t.state !== "cancelled");
 
   return (
@@ -134,7 +152,7 @@ export default async function EventPage({ params, searchParams }: { params: Prom
           <div className="stats">
             <div className="stat"><b>{ins.funnel.registered}{e.capacity ? <em> of {e.capacity} places</em> : null}</b><span>Registered {versus(ins.funnel.registered, e.targetRegistrations)}</span></div>
             <div className="stat"><b>{attended} <em>of {ins.funnel.registered}</em></b><span>Checked in</span><div className="meter"><i style={{ width: `${ins.funnel.registered ? (attended / ins.funnel.registered) * 100 : 0}%` }} /></div></div>
-            <div className="stat"><b>{leads.length}</b><span>Leads {versus(leads.length, e.targetLeads)}</span></div>
+            <div className="stat"><b>{ins.leads.total}</b><span>Leads {versus(ins.leads.total, e.targetLeads)}</span></div>
             <div className="stat"><b>{hot}</b><span>Hot leads</span></div>
             {can(me, "insights.read") && <div className="stat"><b>{ins.money.pipeline ? money(ins.money.pipeline, ins.currency) : "–"}</b><span>Pipeline</span></div>}
             <div className="stat"><b>{open.length}</b><span>Open to-dos</span></div>
@@ -162,12 +180,15 @@ export default async function EventPage({ params, searchParams }: { params: Prom
             <section className="section">
               <h2>To-dos <small>{open.length} open</small></h2>
               <form action={addTaskAction} className="row" style={{ marginBottom: 8 }}>
-                {hidden}<input name="shortDescription" required minLength={2} placeholder="Add a to-do" aria-label="New to-do" style={{ flex: 1 }} /><button type="submit" className="ghost">Add</button>
+                {hidden}<input type="hidden" name="timezone" value={e.timezone} />
+                <input name="shortDescription" required minLength={2} placeholder="Add a to-do" aria-label="New to-do" style={{ flex: "1 1 180px" }} />
+                <input name="dueAt" type="datetime-local" aria-label="Due, optional" title="Due, optional" style={{ flex: "0 1 200px" }} /><button type="submit" className="ghost">Add</button>
               </form>
               {tasks.length === 0 ? <div className="empty">Nothing to do yet.</div> : (
                 <div className="feed">{tasks.map((t) => (
                   <div key={t.id} style={{ alignItems: "center" }}>
-                    <span style={t.state === "done" ? { textDecoration: "line-through", color: "var(--faint)" } : undefined}>{t.shortDescription}{t.description && <span className="small muted" style={{ display: "block" }}>{t.description}</span>}</span>
+                    <span style={t.state === "done" ? { textDecoration: "line-through", color: "var(--faint)" } : undefined}>{t.shortDescription}{t.description && <span className="small muted" style={{ display: "block" }}>{t.description}</span>}
+                      {t.dueAt && t.state !== "done" && <span className="small" style={{ display: "block", color: t.dueAt.getTime() < Date.now() ? "var(--rose)" : "var(--faint)" }}>{due(t.dueAt)}</span>}</span>
                     <form action={taskStateAction} style={{ marginLeft: "auto" }}>{hidden}<input type="hidden" name="taskId" value={t.id} /><input type="hidden" name="state" value={t.state === "done" ? "open" : "done"} />
                       <button className="ghost" type="submit">{t.state === "done" ? "Reopen" : "Done"}</button></form>
                   </div>
@@ -256,7 +277,7 @@ export default async function EventPage({ params, searchParams }: { params: Prom
                 {guests.map(({ r, c }) => (
                   <tr key={r.id}>
                     <td><input type="checkbox" name="ids" value={r.id} form="bulk" aria-label={`Select ${c.firstName} ${c.lastName ?? ""}`} style={{ width: "auto" }} /></td>
-                    <td>{c.firstName} {c.lastName}{can(me, "contact.write") && <> <Link className="small" href={guestsAt(pageNo, `&edit=${r.id}`)}>Edit</Link></>}<span className="sub">{c.email}</span></td>
+                    <td>{r.vip && <span className="pill hot" title="The team wants to know when this guest arrives">VIP</span>} {c.firstName} {c.lastName}{can(me, "registration.write") && <form action={setVipAction} style={{ display: "inline" }}>{hidden}<input type="hidden" name="registrationId" value={r.id} /><input type="hidden" name="vip" value={r.vip ? "false" : "true"} /> <button className="link small" type="submit">{r.vip ? "Unmark VIP" : "Mark VIP"}</button></form>}{can(me, "contact.write") && <> <Link className="small" href={guestsAt(pageNo, `&edit=${r.id}`)}>Edit</Link></>}<span className="sub">{c.email}</span></td>
                     <td><span className={`pill ${r.checkedInAt ? "attended" : r.status === "waitlisted" || r.status === "invited" || r.status === "pending" ? "held" : r.status === "declined" || r.status === "cancelled" ? "" : r.status}`}>{STATUS[r.checkedInAt ? "attended" : r.status]}</span></td>
                     <td className="muted">{r.source === "web" ? "Public page" : r.source === "staff" ? "Added by staff" : r.source === "import" ? "Guest list" : r.source}</td>
                     <td><Link href={`/e/${e.slug}/pass/${r.id}`} target="_blank">{r.number}</Link>{r.pin && <span className="sub">PIN {r.pin}</span>}</td>
@@ -325,7 +346,27 @@ export default async function EventPage({ params, searchParams }: { params: Prom
               return (
                 <div className="rowitem" key={s.id}>
                   <div className="datebox"><b>{s.startsAt ? new Intl.DateTimeFormat("en-IN", { hour: "numeric", minute: "2-digit", hour12: false, timeZone: e.timezone }).format(s.startsAt) : "?"}</b></div>
-                  <div><div className="title">{s.title}</div><div className="small muted">{who.length ? who.map((x) => `${x.c.firstName} ${x.c.lastName ?? ""}${x.c.title ? `, ${x.c.title}` : ""}`.trim()).join("; ") : "No speaker yet"}</div></div>
+                  <div>
+                    <div className="title">{s.title}</div>
+                    <div className="small muted">{who.length === 0 ? "No speaker yet" : who.map((x) => (
+                      <span key={x.c.id} style={{ marginRight: 12 }}>{`${x.c.firstName} ${x.c.lastName ?? ""}${x.c.title ? `, ${x.c.title}` : ""}`.trim()}
+                        {can(me, "session.write") && <form action={removeSpeakerAction} style={{ display: "inline" }}>{hidden}<input type="hidden" name="sessionId" value={s.id} /><input type="hidden" name="contactId" value={x.c.id} /> <button className="link small" type="submit" title="Take this speaker off the session">remove</button></form>}
+                      </span>
+                    ))}</div>
+                    {can(me, "session.write") && (
+                      <details style={{ marginTop: 8 }}>
+                        <summary className="small" style={{ cursor: "pointer", color: "var(--iris)" }}>Edit</summary>
+                        <form action={updateSessionAction} className="row" style={{ marginTop: 10 }}>
+                          {hidden}<input type="hidden" name="timezone" value={e.timezone} /><input type="hidden" name="sessionId" value={s.id} />
+                          <label style={{ flexBasis: 260 }}>Title<input name="title" required minLength={2} defaultValue={s.title} /></label>
+                          <label>Track<input name="track" defaultValue={s.track ?? ""} /></label><label>Room<input name="room" defaultValue={s.room ?? ""} /></label>
+                          <label>Starts<input name="startsAt" type="datetime-local" defaultValue={isoToZonedLocal(s.startsAt, e.timezone)} /></label>
+                          <button type="submit" className="ghost">Save</button>
+                        </form>
+                        <form action={removeSessionAction} style={{ marginTop: 8 }}>{hidden}<input type="hidden" name="sessionId" value={s.id} /><button className="link small" type="submit">Remove this session</button></form>
+                      </details>
+                    )}
+                  </div>
                   <div className="actions">{s.track && <span className="pill">{s.track}</span>}{s.room && <span className="small muted">{s.room}</span>}</div>
                 </div>
               );
@@ -349,11 +390,36 @@ export default async function EventPage({ params, searchParams }: { params: Prom
             </details>
             <Link className="button" href={`/events/${e.id}/capture`}>Open the phone screen</Link>
           </div>}
-          {leads.length === 0 ? <div className="empty">No leads yet. On the stand, use Capture a lead on a phone.</div> : (
+          {ins.leads.total > 0 && (
+            <form method="get" className="actions" style={{ margin: "6px 0 18px" }}>
+              <input type="hidden" name="tab" value="leads" />
+              <input name="lq" defaultValue={leadTerm} placeholder="Name, email or what was said" aria-label="Search leads" style={{ maxWidth: 280 }} />
+              <select name="band" defaultValue={leadBand ?? ""} aria-label="Band" style={{ width: "auto" }}><option value="">Hot, warm and cold</option><option value="hot">Hot</option><option value="warm">Warm</option><option value="cold">Cold</option></select>
+              <label className="check"><input type="checkbox" name="mine" value="1" defaultChecked={Boolean(asksMine)} /> Only mine</label>
+              <button type="submit" className="ghost">Show</button>
+              {(leadTerm || leadBand || asksMine) && <Link className="small" href={`/events/${e.id}?tab=leads`}>Clear</Link>}
+              <span className="small muted">{leads.length === ins.leads.total ? `${leads.length} leads` : `${leads.length} of ${ins.leads.total}`}</span>
+            </form>
+          )}
+          {ins.leads.total === 0 ? <div className="empty">No leads yet. On the stand, use Capture a lead on a phone.</div> : leads.length === 0 ? <div className="empty">No leads match that.</div> : (
             <div className="rows">{leads.map(({ l, c }) => (
               <div className="rowitem" key={l.id}>
                 <div className="datebox">{l.score != null ? <><b>{l.score}</b><span>score</span></> : <span>Not scored</span>}</div>
-                <div><div className="title">{c.firstName} {c.lastName}{c.title ? <span className="muted" style={{ fontWeight: 400 }}>, {c.title}</span> : null}</div><div className="small muted">{l.notes}</div></div>
+                <div><div className="title">{c.firstName} {c.lastName}{c.title ? <span className="muted" style={{ fontWeight: 400 }}>, {c.title}</span> : null}</div><div className="small muted">{l.notes}</div>
+                  {tasks.filter((t) => (t.payload as { leadId?: string }).leadId === l.id && t.state !== "done" && t.state !== "cancelled").map((t) => (
+                    <div key={t.id} className="small" style={{ marginTop: 6, color: t.dueAt && t.dueAt.getTime() < Date.now() ? "var(--rose)" : "var(--amber)" }}>Follow up: {t.shortDescription}{t.dueAt ? ` · ${due(t.dueAt)}` : ""}</div>
+                  ))}
+                  {can(me, "lead.write") && can(me, "task.write") && (
+                    <details style={{ marginTop: 6 }}>
+                      <summary className="small" style={{ cursor: "pointer", color: "var(--iris)" }}>Add a follow-up</summary>
+                      <form action={followUpAction} className="row" style={{ marginTop: 8 }}>
+                        {hidden}<input type="hidden" name="timezone" value={e.timezone} /><input type="hidden" name="leadId" value={l.id} />
+                        <label style={{ flexBasis: 240 }}>What to do<input name="shortDescription" required minLength={2} placeholder={`Send ${c.firstName} the pricing sheet`} /></label>
+                        <label>By<input name="dueOn" type="date" /></label>
+                        <button type="submit" className="ghost">Add</button>
+                      </form>
+                    </details>
+                  )}</div>
                 <div className="actions">
                   {l.band && <span className={`pill ${l.band}`}>{l.band}</span>}
                   {can(me, "lead.write") && <form action={leadValueAction} className="actions">{hidden}<input type="hidden" name="leadId" value={l.id} />
@@ -370,16 +436,28 @@ export default async function EventPage({ params, searchParams }: { params: Prom
         <div className="cols">
           <section className="section">
             <h2>Write to guests</h2>
-            <form action={campaignAction} className="stack">
+            {templates.length > 0 && (
+              <div className="actions" style={{ marginBottom: 14 }}>
+                <span className="small muted">Start from:</span>
+                {templates.map((t) => (
+                  <span key={t.id} className="actions" style={{ gap: 4 }}>
+                    <Link className={`pill ${t.id === starting?.id ? "registered" : ""}`} href={`/events/${e.id}?tab=messages&template=${t.id}`}>{t.name}</Link>
+                    <form action={removeTemplateAction}>{hidden}<input type="hidden" name="templateId" value={t.id} /><button className="link small" type="submit" title="Delete this saved message" aria-label={`Delete the saved message ${t.name}`}>×</button></form>
+                  </span>
+                ))}
+              </div>
+            )}
+            <form action={campaignAction} className="stack" key={starting?.id ?? "blank"}>
               {hidden}
               <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
                 <label>To<select name="segment" defaultValue="all"><option value="all">Everyone registered</option><option value="not_checked_in">Not checked in yet</option><option value="checked_in">Checked in</option><option value="invited">Invited, not registered</option></select></label>
                 <label>By<select name="channel" defaultValue="email"><option value="email">Email</option><option value="whatsapp">WhatsApp</option></select></label>
               </div>
-              <label>Subject, for email<input name="subject" maxLength={200} /></label>
-              <label>Message<textarea name="body" required style={{ minHeight: 150 }} placeholder={"Hi {{first_name}},\n\nA quick update about {{event_name}}.\n\nYour pass: {{pass_url}}"} /></label>
+              <label>Subject, for email<input name="subject" maxLength={200} defaultValue={starting?.subject ?? ""} /></label>
+              <label>Message<textarea name="body" required style={{ minHeight: 150 }} defaultValue={starting?.body ?? ""} placeholder={"Hi {{first_name}},\n\nA quick update about {{event_name}}.\n\nYour pass: {{pass_url}}"} /></label>
               <input type="hidden" name="timezone" value={e.timezone} />
               <label>Send at (optional)<input name="sendAt" type="datetime-local" /></label>
+              <label>Keep this message to reuse, under the name (optional)<input name="templateName" maxLength={80} placeholder="Agenda update" /></label>
               <div className="actions"><button type="submit">Send</button><span className="small faint">Leave the time empty to send now. Times are in {e.timezone}. Guests without consent for the channel are skipped.</span></div>
             </form>
             {scheduled.length > 0 && (
@@ -428,6 +506,15 @@ export default async function EventPage({ params, searchParams }: { params: Prom
                 {ins.funnel.awaitingReply > 0 ? `${ins.funnel.awaitingReply} have not replied. ` : ""}{ins.funnel.waitlisted > 0 ? `${ins.funnel.waitlisted} on the waitlist. ` : ""}
                 {ins.funnel.declined + ins.funnel.cancelled > 0 ? `${ins.funnel.declined} declined, ${ins.funnel.cancelled} cancelled.` : ""}
               </p>
+              {referrers.length > 0 && (
+                <>
+                  <h2 style={{ marginTop: 26 }}>Brought by guests <small>through their own invitation links</small></h2>
+                  <div className="feed">{[...referrers].sort((a, b) => b.n - a.n).slice(0, 8).map((r) => {
+                    const who = referrerNames.find((x) => x.id === r.id);
+                    return <div key={r.id}><span>{who ? `${who.firstName} ${who.lastName ?? ""}`.trim() : "A guest"}</span><time>{r.n} {r.n === 1 ? "guest" : "guests"}</time></div>;
+                  })}</div>
+                </>
+              )}
               {comments.length > 0 && <><h2 style={{ marginTop: 26 }}>What guests said</h2>{comments.filter((c) => c.comment).map((c) => <div className="note" key={c.id}><span className="small faint">Score {c.score}</span>{"\n"}{c.comment}</div>)}</>}
             </section>
             <section className="section">
@@ -495,6 +582,7 @@ export default async function EventPage({ params, searchParams }: { params: Prom
               <label>Hosted by (optional)<input name="hostName" maxLength={120} defaultValue={e.hostName ?? ""} placeholder="Your company or team, as guests should read it" /></label>
               <label>Venue<input name="venue" maxLength={200} defaultValue={e.venue ?? ""} /></label>
               <label>Link to a map of the venue (optional)<input name="locationUrl" type="url" placeholder="https://maps.app.goo.gl/…" defaultValue={e.locationUrl ?? ""} /></label>
+              <label>Link to join online, for an online or hybrid event (optional)<input name="onlineUrl" type="url" placeholder="https://meet.example.com/…" defaultValue={e.onlineUrl ?? ""} /></label>
               <label>What guests read on the public page<textarea name="description" rows={6} maxLength={10000} defaultValue={e.description ?? ""} placeholder="What the event is, who it is for and what will happen. A blank line starts a new paragraph." /></label>
               <label>Cover picture, as a web address (optional)<input name="coverImageUrl" type="url" placeholder="https://…/cover.jpg" defaultValue={e.coverImageUrl ?? ""} /></label>
               <label>Brief for the team and the agents. Never shown to guests.<textarea name="brief" rows={3} maxLength={4000} defaultValue={e.brief ?? ""} /></label>

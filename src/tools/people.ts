@@ -77,7 +77,7 @@ export const registrationCheckIn = defineTool({
   async handler(ctx, { registrationId }) {
     const [row] = await ctx.db.select().from(registration).where(eq(registration.id, registrationId));
     if (!row) throw new ToolError("not_found", "No such registration");
-    if (row.checkedInAt) return { id: row.id, pin: row.pin, alreadyCheckedIn: true };
+    if (row.checkedInAt) return { id: row.id, pin: row.pin, alreadyCheckedIn: true, vip: row.vip };
     if (row.status === "cancelled" || row.status === "declined") throw new ToolError("cancelled", "This guest cancelled or declined");
     if (row.status === "pending") throw new ToolError("not_approved", "This guest has not been approved yet");
     const pin = String(randomInt(0, 1_000_000)).padStart(6, "0");
@@ -85,8 +85,8 @@ export const registrationCheckIn = defineTool({
       .update(registration)
       .set({ status: "attended", pin, checkedInAt: new Date(), checkedInBy: ctx.principal.id, updatedBy: ctx.principal.id, updatedAt: new Date() })
       .where(eq(registration.id, registrationId));
-    await ctx.emit("checkin.confirmed", { eventId: row.eventId, registrationId, contactId: row.contactId });
-    return { id: row.id, pin, alreadyCheckedIn: false };
+    await ctx.emit("checkin.confirmed", { eventId: row.eventId, registrationId, contactId: row.contactId, vip: row.vip });
+    return { id: row.id, pin, alreadyCheckedIn: false, vip: row.vip };
   },
 });
 
@@ -125,6 +125,7 @@ export const registrationRegisterGuest = defineTool({
     phone: z.string().regex(/^\+[1-9]\d{7,14}$/, "Use international format, e.g. +919876543210").optional(),
     whatsappOptIn: z.boolean().default(false),
     answers: z.record(z.string(), z.unknown()).default({}).describe("Answers to the event's own registration questions, by key"),
+    referredBy: z.string().trim().toUpperCase().regex(/^REG\d{1,12}$/).optional().describe("The pass number of the guest whose invitation link was used"),
   }),
   async handler(ctx, input) {
     const [target] = await ctx.db.select().from(event).where(eq(event.slug, input.eventSlug));
@@ -132,7 +133,7 @@ export const registrationRegisterGuest = defineTool({
     const answers = await readAnswers(ctx.db, target.id, "registration", input.answers);
 
     // A stranger typing someone else's email must not be able to rewrite that person's record.
-    const { eventSlug: _slug, whatsappOptIn, answers: _raw, ...fields } = input;
+    const { eventSlug: _slug, whatsappOptIn, answers: _raw, referredBy: referrerNumber, ...fields } = input;
     const optIn = whatsappOptIn && fields.phone ? { whatsappOptInAt: new Date() } : {};
     await ctx.db.insert(contact).values({ ...fields, ...optIn, createdBy: ctx.principal.id, updatedBy: ctx.principal.id }).onConflictDoNothing();
     const [person] = await ctx.db.select({ id: contact.id }).from(contact).where(eq(contact.email, input.email));
@@ -143,10 +144,13 @@ export const registrationRegisterGuest = defineTool({
       .where(and(eq(registration.eventId, target.id), eq(registration.contactId, person.id)));
     if (existing) return { registered: true, created: false, status: "existing" as const };
     const status = target.requireApproval ? ("pending" as const) : await placeFor(ctx.db, target.id, target.capacity);
+    // A referral counts only when the pass number belongs to another guest of this same event.
+    const [referrer] = referrerNumber ? await ctx.db.select({ id: registration.id, contactId: registration.contactId }).from(registration).where(and(eq(registration.number, referrerNumber), eq(registration.eventId, target.id))) : [];
+    const referredBy = referrer && referrer.contactId !== person.id ? referrer.id : null;
     const [row] = await ctx.db
       .insert(registration)
       .values({
-        eventId: target.id, contactId: person.id, source: "web", status, number: await nextNumber(ctx.db, "REG"), custom: answers,
+        eventId: target.id, contactId: person.id, source: referredBy ? "referral" : "web", referredBy, status, number: await nextNumber(ctx.db, "REG"), custom: answers,
         createdBy: ctx.principal.id, updatedBy: ctx.principal.id,
       })
       .returning({ id: registration.id });
@@ -446,13 +450,26 @@ export const registrationCheckInByNumber = defineTool({
     const [row] = await ctx.db.select({ r: registration, firstName: contact.firstName, lastName: contact.lastName }).from(registration).innerJoin(contact, eq(contact.id, registration.contactId)).where(eq(registration.number, number));
     if (!row || row.r.eventId !== eventId) throw new ToolError("wrong_event", "That pass is not for this event");
     const name = [row.firstName, row.lastName].filter(Boolean).join(" ");
-    if (row.r.checkedInAt) return { id: row.r.id, name, pin: row.r.pin, alreadyCheckedIn: true };
+    if (row.r.checkedInAt) return { id: row.r.id, name, pin: row.r.pin, alreadyCheckedIn: true, vip: row.r.vip };
     if (row.r.status === "cancelled" || row.r.status === "declined") throw new ToolError("cancelled", `${name} cancelled or declined`);
     if (row.r.status === "pending") throw new ToolError("not_approved", `${name} has not been approved yet`);
     if (row.r.status === "waitlisted") throw new ToolError("waitlisted", `${name} is on the waitlist and does not have a place`);
     const pin = String(randomInt(0, 1_000_000)).padStart(6, "0");
     await ctx.db.update(registration).set({ status: "attended", pin, checkedInAt: new Date(), checkedInBy: ctx.principal.id, updatedBy: ctx.principal.id, updatedAt: new Date() }).where(eq(registration.id, row.r.id));
-    await ctx.emit("checkin.confirmed", { eventId, registrationId: row.r.id, contactId: row.r.contactId, scanned: true });
-    return { id: row.r.id, name, pin, alreadyCheckedIn: false };
+    await ctx.emit("checkin.confirmed", { eventId, registrationId: row.r.id, contactId: row.r.contactId, scanned: true, vip: row.r.vip });
+    return { id: row.r.id, name, pin, alreadyCheckedIn: false, vip: row.r.vip };
+  },
+});
+
+export const registrationSetVip = defineTool({
+  name: "registration.set_vip",
+  description: "Mark a guest as someone the team wants to know has arrived, or unmark them. The door desk sees the mark and is told when they check in.",
+  permission: "registration.write",
+  risk: "write",
+  input: z.object({ registrationId: z.uuid(), vip: z.boolean() }),
+  async handler(ctx, { registrationId, vip }) {
+    const [row] = await ctx.db.update(registration).set({ vip, updatedBy: ctx.principal.id, updatedAt: new Date() }).where(eq(registration.id, registrationId)).returning({ id: registration.id });
+    if (!row) throw new ToolError("not_found", "No such registration");
+    return { id: row.id, vip };
   },
 });

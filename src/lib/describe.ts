@@ -43,6 +43,16 @@ const VERBS: Record<string, (i: Input) => string> = {
   "webhook.remove": () => "disconnected another system",
   "playbook.set": () => "updated the playbook",
   "event.cancel": () => "cancelled an event",
+  "session.update": () => "changed a session",
+  "session.remove": () => "removed a session",
+  "session.remove_speaker": () => "took a speaker off a session",
+  "registration.set_vip": (i) => (i.vip ? "marked a guest as a VIP" : "unmarked a guest as a VIP"),
+  "template.save": (i) => `saved the message ${q(i.name)} to reuse`,
+  "template.remove": () => "deleted a saved message",
+  "user.invite": (i) => `invited ${i.name} to the team`,
+  "user.set_email": () => "changed a team member's email",
+  "apikey.create": (i) => `created the key ${q(i.name)}`,
+  "apikey.revoke": () => "revoked a key",
   "campaign.unschedule": () => "stopped a scheduled message",
   "contact.update": () => "corrected a person's details",
   "registration.check_in_by_number": () => "checked a guest in from their pass",
@@ -65,7 +75,7 @@ const VERBS: Record<string, (i: Input) => string> = {
 const BASE: Record<string, string> = {
   created: "create", read: "read", looked: "look", set: "set", added: "add", removed: "remove", saved: "save", recorded: "record", registered: "register",
   checked: "check", exported: "export", captured: "capture", scored: "score", sent: "send", messaged: "message", marked: "mark", wrote: "write", asked: "ask",
-  reset: "reset", changed: "change", ran: "run", updated: "update", started: "start", erased: "erase", approved: "approve", turned: "turn", stopped: "stop", corrected: "correct", opened: "open", took: "take", made: "make", switched: "switch", put: "put", cancelled: "cancel", connected: "connect", disconnected: "disconnect",
+  reset: "reset", changed: "change", ran: "run", updated: "update", started: "start", erased: "erase", approved: "approve", turned: "turn", stopped: "stop", corrected: "correct", invited: "invite", revoked: "revoke", deleted: "delete", unmarked: "unmark", opened: "open", took: "take", made: "make", switched: "switch", put: "put", cancelled: "cancel", connected: "connect", disconnected: "disconnect",
 };
 
 export function sentence(tool: string, input: unknown, status: string): string {

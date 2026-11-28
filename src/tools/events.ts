@@ -143,7 +143,7 @@ export const eventPublicInfo = defineTool({
       .from(eventSession).where(eq(eventSession.eventId, eventId));
     const speakers = await ctx.db.select({ sessionTitle: eventSession.title, firstName: contact.firstName, lastName: contact.lastName, title: contact.title })
       .from(sessionSpeaker).innerJoin(eventSession, eq(eventSession.id, sessionSpeaker.sessionId)).innerJoin(contact, eq(contact.id, sessionSpeaker.contactId)).where(eq(eventSession.eventId, eventId));
-    return { name: row.name, host: row.hostName, description: row.description, kind: row.kind, status: row.status, startsAt: row.startsAt, endsAt: row.endsAt, timezone: row.timezone, venue: row.venue, mapLink: row.locationUrl, registrationOpen: row.status === "live", needsApproval: row.requireApproval, sessions, speakers };
+    return { name: row.name, host: row.hostName, description: row.description, kind: row.kind, status: row.status, startsAt: row.startsAt, endsAt: row.endsAt, timezone: row.timezone, venue: row.venue, mapLink: row.locationUrl, alsoOnline: Boolean(row.onlineUrl), registrationOpen: row.status === "live", needsApproval: row.requireApproval, sessions, speakers };
   },
 });
 
@@ -230,6 +230,7 @@ export const eventUpdate = defineTool({
     venue: z.string().max(200).nullable().optional(), brief: z.string().max(4000).nullable().optional(),
     description: z.string().max(10000).nullable().optional().describe("What guests read on the public page. Plain text; blank lines make paragraphs"),
     coverImageUrl: link.nullable().optional(), locationUrl: link.nullable().optional(),
+    onlineUrl: link.nullable().optional().describe("Where to join online. Shown only to guests who hold a place"),
     requireApproval: z.boolean().optional().describe("When true, guests who register wait until someone approves them"),
     hostName: z.string().trim().max(120).nullable().optional().describe("Who is putting the event on, shown on the public page"),
     confirmationNote: z.string().max(2000).nullable().optional().describe("A few lines added to every confirmation email, e.g. parking or dress code"),
@@ -277,7 +278,7 @@ export const eventClone = defineTool({
       number, name, slug: `${slugify(name)}-${number.slice(-4)}`, kind: src.kind, timezone: src.timezone, venue: src.venue, brief: src.brief,
       capacity: src.capacity, targetRegistrations: src.targetRegistrations, targetLeads: src.targetLeads, currency: src.currency,
       description: src.description, coverImageUrl: src.coverImageUrl, locationUrl: src.locationUrl, requireApproval: src.requireApproval,
-      hostName: src.hostName, confirmationNote: src.confirmationNote, reminders: src.reminders, feedbackEmail: src.feedbackEmail,
+      hostName: src.hostName, confirmationNote: src.confirmationNote, reminders: src.reminders, feedbackEmail: src.feedbackEmail, onlineUrl: src.onlineUrl,
       startsAt: start, endsAt: moved(src.endsAt), ...stamp,
     }).returning();
     const fields = await ctx.db.select().from(formField).where(eq(formField.eventId, eventId));
@@ -356,5 +357,54 @@ export const eventCancel = defineTool({
     }
     await ctx.emit("event.cancelled", { eventId, told });
     return { cancelled: true, told, already: false };
+  },
+});
+
+export const sessionUpdate = defineTool({
+  name: "session.update",
+  description: "Change a session: title, abstract, track, room, times or capacity. Leave a field out to keep it; send null to clear one.",
+  permission: "session.write",
+  risk: "write",
+  input: z.object({
+    sessionId: z.uuid(),
+    title: z.string().trim().min(2).max(200).optional(),
+    abstract: z.string().max(4000).nullable().optional(),
+    track: z.string().trim().max(80).nullable().optional(), room: z.string().trim().max(80).nullable().optional(),
+    startsAt: when.nullable(), endsAt: when.nullable(),
+    capacity: z.number().int().positive().nullable().optional(),
+  }),
+  async handler(ctx, { sessionId, startsAt, endsAt, ...changes }) {
+    const dates = { ...(startsAt !== undefined ? { startsAt: toDate(startsAt) } : {}), ...(endsAt !== undefined ? { endsAt: toDate(endsAt) } : {}) };
+    const [row] = await ctx.db.update(eventSession).set({ ...changes, ...dates, updatedBy: ctx.principal.id, updatedAt: new Date() }).where(eq(eventSession.id, sessionId)).returning({ id: eventSession.id, eventId: eventSession.eventId });
+    if (!row) throw new ToolError("not_found", "No such session");
+    await ctx.emit("session.updated", { eventId: row.eventId, sessionId });
+    return { id: row.id };
+  },
+});
+
+export const sessionRemove = defineTool({
+  name: "session.remove",
+  description: "Take a session off the agenda, with its speaker slots. The speakers stay on record as contacts.",
+  permission: "session.write",
+  risk: "write",
+  input: z.object({ sessionId: z.uuid() }),
+  async handler(ctx, { sessionId }) {
+    const rows = await ctx.db.delete(eventSession).where(eq(eventSession.id, sessionId)).returning({ eventId: eventSession.eventId });
+    if (rows.length === 0) throw new ToolError("not_found", "No such session");
+    await ctx.emit("session.removed", { eventId: rows[0].eventId, sessionId });
+    return { removed: true };
+  },
+});
+
+export const sessionRemoveSpeaker = defineTool({
+  name: "session.remove_speaker",
+  description: "Take a speaker off a session. They stay on record as a contact.",
+  permission: "session.write",
+  risk: "write",
+  input: z.object({ sessionId: z.uuid(), contactId: z.uuid() }),
+  async handler(ctx, { sessionId, contactId }) {
+    const rows = await ctx.db.delete(sessionSpeaker).where(and(eq(sessionSpeaker.sessionId, sessionId), eq(sessionSpeaker.contactId, contactId))).returning({ sessionId: sessionSpeaker.sessionId });
+    if (rows.length === 0) throw new ToolError("not_found", "That person is not a speaker on that session");
+    return { removed: true };
   },
 });

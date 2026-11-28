@@ -275,6 +275,8 @@ export const event = pgTable("event", {
   reminders: boolean("reminders").notNull().default(true),
   /** After the event, email everyone who attended and ask how it was. */
   feedbackEmail: boolean("feedback_email").notNull().default(false),
+  /** Where to join online, for an online or hybrid event. Shown only to guests holding a place. */
+  onlineUrl: text("online_url"),
 });
 
 /** What an event is expected to cost and what it did cost, line by line. Whole currency units. */
@@ -374,6 +376,10 @@ export const registration = pgTable(
     pin: text("pin"),
     checkedInAt: ts("checked_in_at"),
     checkedInBy: uuid("checked_in_by"),
+    /** Someone the team wants to know has arrived. Shown at the door. */
+    vip: boolean("vip").notNull().default(false),
+    /** The registration of the guest whose invitation link this guest registered through. */
+    referredBy: uuid("referred_by"),
   },
   (t) => [uniqueIndex("registration_once").on(t.eventId, t.contactId)],
 );
