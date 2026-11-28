@@ -11,3 +11,6 @@ test-output.txt
 
 .vercel
 .env*
+
+# Local test sign-ins, generated on this machine. Never commit.
+*.local.txt
