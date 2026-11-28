@@ -6,6 +6,8 @@ import { event, registration } from "@/db/schema";
 import { guestLinkAction, guestSignOutAction } from "@/app/actions";
 import { currentGuest } from "@/lib/guest";
 import { formatWhen } from "@/lib/when";
+import { Poster } from "@/components/poster";
+import { ThemeToggle } from "@/components/theme-toggle";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Your events", robots: { index: false, follow: false } };
@@ -66,7 +68,8 @@ export default async function MyEvents({ searchParams }: { searchParams: Promise
     return (
       <div className="card" key={r.id} style={{ marginBottom: 16, maxWidth: "none" }}>
         <div style={{ display: "flex", gap: 18, alignItems: "flex-start", flexWrap: "wrap" }}>
-          <div style={{ flex: "1 1 240px", minWidth: 0 }}>
+          <Poster event={e} size="mini" />
+          <div style={{ flex: "1 1 220px", minWidth: 0 }}>
             <span className={`pill ${e.status === "cancelled" ? "cancelled" : TONE[state] ?? ""}`}>{e.status === "cancelled" ? "Event cancelled" : LABEL[state] ?? state}</span>
             <h2 style={{ margin: "10px 0 4px" }}>{e.name}</h2>
             <p className="muted" style={{ margin: 0 }}>{formatWhen(e.startsAt, e.timezone)}{e.venue ? <><br />{e.venue}</> : null}</p>
@@ -90,7 +93,7 @@ export default async function MyEvents({ searchParams }: { searchParams: Promise
     <div style={{ maxWidth: 680, margin: "0 auto", padding: "36px 16px 60px" }}>
       <div className="head">
         <div><h1>Hi {guest.firstName}</h1><p className="muted">Your events and passes. Signed in as {guest.email}.</p></div>
-        <form action={guestSignOutAction}><button type="submit" className="ghost">Sign out</button></form>
+        <div className="actions"><ThemeToggle /><form action={guestSignOutAction}><button type="submit" className="ghost">Sign out</button></form></div>
       </div>
       {rows.length === 0 && <div className="empty">You are not on the list for any event at the moment.</div>}
       {upcoming.length > 0 && <><h2>Coming up</h2>{upcoming.map((x) => card(x, true))}</>}

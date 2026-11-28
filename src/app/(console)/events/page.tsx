@@ -4,6 +4,7 @@ import { getDb } from "@/db/client";
 import { event, registration } from "@/db/schema";
 import { createEventAction } from "@/app/actions";
 import { countdown } from "@/lib/describe";
+import { Poster, hueStyle } from "@/components/poster";
 import { DEFAULT_TIMEZONE, timeZones } from "@/lib/when";
 import { can, requirePrincipal } from "@/lib/session";
 import { Denied } from "@/components/denied";
@@ -40,21 +41,19 @@ export default async function Events({ searchParams }: { searchParams: Promise<{
         </form>
       </details>}
       {rows.length === 0 ? <div className="empty">No events yet.{can(me, "event.write") ? " Create the first one above." : ""}</div> : (
-        <div className="rows">
+        <div className="board">
           {rows.map(({ event: e, registrations }) => {
             const inCount = checked.find((c) => c.eventId === e.id)?.n ?? 0;
             return (
-              <Link key={e.id} href={`/events/${e.id}`} className="rowlink">
-                <div className="datebox">
-                  {e.startsAt ? <><b>{new Intl.DateTimeFormat("en-IN", { day: "numeric", timeZone: e.timezone }).format(e.startsAt)}</b><span>{new Intl.DateTimeFormat("en-IN", { month: "short", year: "2-digit", timeZone: e.timezone }).format(e.startsAt)}</span></> : <span>No date</span>}
-                </div>
-                <div>
+              <Link key={e.id} href={`/events/${e.id}`} className="evcard" style={hueStyle(e.id)}>
+                <Poster event={e} size="wide"><span className={`pill ${e.status}`}>{e.status}</span></Poster>
+                <div className="body">
                   <div className="title">{e.name}</div>
-                  <div className="small muted">{KIND[e.kind]}{e.venue ? `, ${e.venue}` : ""}, {countdown(e.startsAt)}</div>
-                </div>
-                <div className="actions">
-                  <span className="small muted">{registrations} registered{inCount > 0 ? `, ${inCount} in` : ""}</span>
-                  <span className={`pill ${e.status}`}>{e.status}</span>
+                  <div className="small muted">{KIND[e.kind]}{e.venue ? ` · ${e.venue}` : ""}</div>
+                  <div className="meta">
+                    <span className="small muted">{registrations} registered{inCount > 0 ? ` · ${inCount} in` : ""}</span>
+                    <span className="small faint">{countdown(e.startsAt)}</span>
+                  </div>
                 </div>
               </Link>
             );

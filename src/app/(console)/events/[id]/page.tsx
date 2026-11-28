@@ -13,6 +13,7 @@ import { eventInsights, money } from "@/lib/insights";
 import { can, requirePrincipal } from "@/lib/session";
 import { formatWhen, isoToZonedLocal, timeZones } from "@/lib/when";
 import { Denied } from "@/components/denied";
+import { Poster, hueStyle } from "@/components/poster";
 
 
 const NEXT_STATUS: Record<EventStatus, { status: EventStatus; label: string }[]> = {
@@ -102,10 +103,11 @@ export default async function EventPage({ params, searchParams }: { params: Prom
   const open = tasks.filter((t) => t.state !== "done" && t.state !== "cancelled");
 
   return (
-    <>
+    <div className="hue" style={hueStyle(e.id)}>
       <div className="crumb"><Link href="/events">Events</Link> / {e.number}</div>
-      <div className="head">
-        <div>
+      <div className="hero">
+        <Poster event={e} size="mini" />
+        <div className="grow">
           <h1>{e.name}</h1>
           <p className="muted">
             <span className={`pill ${e.status}`}>{e.status}</span>{" "}
@@ -555,6 +557,6 @@ export default async function EventPage({ params, searchParams }: { params: Prom
           </section>
         </div>
       )}
-    </>
+    </div>
   );
 }

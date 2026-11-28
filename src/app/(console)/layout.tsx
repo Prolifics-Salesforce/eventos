@@ -6,7 +6,9 @@ import { event, task } from "@/db/schema";
 import { signOutAction } from "@/app/actions";
 import { agentsEnabled } from "@/agents/model";
 import { CommandBar, type Command } from "@/components/command-bar";
-import { Icon } from "@/components/icons";
+import { RailNav } from "@/components/rail-nav";
+import { ThemeToggle } from "@/components/theme-toggle";
+import { initials } from "@/lib/describe";
 import { can, requirePrincipal } from "@/lib/session";
 import type { Permission } from "@/platform/permissions";
 
@@ -42,12 +44,7 @@ export default async function ConsoleLayout({ children }: { children: ReactNode 
     <div className="shell">
       <nav className="rail" aria-label="Main">
         <Link href="/today" className="brand">Event<i>OS</i></Link>
-        {NAV.map((n) => (
-          <Link key={n.href} href={n.href} className="nav">
-            <Icon name={n.icon} /><span className="label">{n.label}</span>
-            {n.href === "/inbox" && waiting.n > 0 && <span className="count">{waiting.n}</span>}
-          </Link>
-        ))}
+        <RailNav items={NAV.map((n) => ({ href: n.href, label: n.label, icon: n.icon, count: n.href === "/inbox" ? waiting.n : 0 }))} />
         <div className="foot small">
           <Link href="/account">{principal.name}</Link>
           <form action={signOutAction}><button className="link" type="submit">Sign out</button></form>
@@ -60,6 +57,10 @@ export default async function ConsoleLayout({ children }: { children: ReactNode 
             <span className={`dot ${on ? "mint" : ""} ${working.n > 0 ? "live" : ""}`} />
             {!on ? "Agents are off" : working.n > 0 ? `${working.n} agent ${working.n === 1 ? "run" : "runs"} in progress` : "Agents are idle"}
           </span>
+          <div className="me">
+            <ThemeToggle />
+            <Link href="/account" className="chip" title="Your account"><span className="avatar">{initials(principal.name)}</span><span>{principal.name.split(" ")[0]}</span></Link>
+          </div>
         </div>
         <main className="page">{children}</main>
       </div>

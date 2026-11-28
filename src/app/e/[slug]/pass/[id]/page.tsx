@@ -6,6 +6,7 @@ import { contact, event, formField, registration, surveyResponse } from "@/db/sc
 import { guestCancelAction, rsvpAction, surveyAction } from "@/app/actions";
 import { FieldInputs } from "@/components/field-inputs";
 import { formatWhen } from "@/lib/when";
+import { hueStyle } from "@/components/poster";
 
 export const dynamic = "force-dynamic";
 // The link is the credential, like a boarding pass: keep it out of search engines.
@@ -36,7 +37,7 @@ export default async function Pass({ params, searchParams }: { params: Promise<{
   const qr = e.status !== "cancelled" && (state === "registered" || state === "attended") ? await QRCode.toString(r.number, { type: "svg", margin: 0, errorCorrectionLevel: "M" }) : null;
   const key = <input type="hidden" name="registrationId" value={r.id} />;
   return (
-    <div className="center">
+    <div className="center hue" style={hueStyle(e.id)}>
       <div className="ticket">
         <div className="top">
           <span className="kind">{label}</span>

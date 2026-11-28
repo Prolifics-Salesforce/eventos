@@ -59,7 +59,7 @@ export default async function Today() {
             {decides && waiting > 0 ? ` and ${waiting} ${waiting === 1 ? "action is" : "actions are"} waiting for your decision.` : "."}
           </p>
         </div>
-        {can(me, "event.write") && <Link className="button" href="/events">New event</Link>}
+        {can(me, "event.write") && <Link className="button primary" href="/events">New event</Link>}
       </div>
 
       {dated.length > 0 && (

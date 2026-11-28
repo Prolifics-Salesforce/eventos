@@ -1,4 +1,4 @@
-import { changePasswordAction } from "@/app/actions";
+import { changePasswordAction, signOutAction } from "@/app/actions";
 import { requirePrincipal } from "@/lib/session";
 
 export default async function Account({ searchParams }: { searchParams: Promise<{ notice?: string; ok?: string }> }) {
@@ -6,7 +6,7 @@ export default async function Account({ searchParams }: { searchParams: Promise<
   const me = await requirePrincipal();
   return (
     <>
-      <div className="head"><div><h1>{me.name}</h1><div className="muted">Your account.</div></div></div>
+      <div className="head"><div><h1>{me.name}</h1><div className="muted">Your account.</div></div><form action={signOutAction}><button type="submit" className="ghost">Sign out</button></form></div>
       {notice && <div className="notice">{notice}</div>}
       {ok && <div className="notice good">{ok}</div>}
       <div className="card" style={{ maxWidth: 460 }}>
