@@ -24,6 +24,8 @@ const ok = async <T>(who: Principal, tool: string, input: unknown): Promise<T> =
 const links = async (email: string) => (await db.select().from(sysOutbox).where(and(eq(sysOutbox.recipient, email), eq(sysOutbox.subject, "Your events and passes")))).map((m) => m.body.match(/\/my\/enter\/([\w-]+)/)![1]);
 
 beforeAll(async () => {
+  // These tests describe a site with a mail server. The last group describes one without.
+  process.env.SMTP_URL = "smtp://mail.test";
   db = await openDb();
   await ensurePlatform(db);
   organiser = (await loadPrincipal(db, await createUser(db, { name: "Omar", kind: "human", email: "omar@team.test", roles: ["organiser"] })))!;
@@ -115,5 +117,37 @@ describe("where guests hear about it", () => {
   it("is linked from the confirmation email", async () => {
     const [mail] = await db.select().from(sysOutbox).where(and(eq(sysOutbox.recipient, "gita@guest.test"), like(sysOutbox.subject, "You're registered%")));
     expect(mail.body).toMatch(/All your events and passes: .*\/my/);
+  });
+});
+
+describe("a site with no mail server", () => {
+  it("hands the link back to be shown, since an email could never arrive, and keeps it out of the ledger", async () => {
+    delete process.env.SMTP_URL;
+    try {
+      const out = await ok<{ sent: true; link?: string }>(site, "guest.request_link", { email: "gita@guest.test" });
+      expect(out.link).toMatch(/^\/my\/enter\/[\w-]{20,}$/);
+      const token = out.link!.split("/").pop()!;
+      const [gita] = await db.select().from(contact).where(eq(contact.email, "gita@guest.test"));
+      expect(await ok(site, "guest.sign_in", { token })).toEqual({ contactId: gita.id });
+      // Still nothing for someone who is on no list.
+      expect((await ok<{ link?: string }>(site, "guest.request_link", { email: "stranger@guest.test" })).link).toBeUndefined();
+      expect(JSON.stringify(await db.select().from(sysAudit).where(like(sysAudit.tool, "guest.%")))).not.toContain(token);
+    } finally {
+      process.env.SMTP_URL = "smtp://mail.test";
+    }
+  });
+
+  it("stops handing links back as soon as a mail server is connected", async () => {
+    expect((await ok<{ link?: string }>(site, "guest.request_link", { email: "gita@guest.test" })).link).toBeUndefined();
+  });
+
+  it("never does the same for a team member's password reset", async () => {
+    delete process.env.SMTP_URL;
+    try {
+      await createUser(db, { name: "Tia", kind: "human", email: "tia@team.test", roles: ["admin"] });
+      expect(await ok(site, "account.request_reset", { email: "tia@team.test" })).toEqual({ sent: true });
+    } finally {
+      process.env.SMTP_URL = "smtp://mail.test";
+    }
   });
 });

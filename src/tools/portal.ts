@@ -11,16 +11,23 @@ import { appUrl } from "@/platform/properties";
 import { defineTool, ToolError } from "@/platform/tools";
 
 const LINK_MINUTES = 30;
+/**
+ * With no mail server connected, an emailed link would never arrive, so the
+ * link is handed back to be shown on screen instead. That makes knowing a
+ * guest's email enough to open their page, which is acceptable only while a
+ * site is being tried out: it stops by itself the moment SMTP_URL is set.
+ */
+export const emailIsSetUp = () => Boolean(process.env.SMTP_URL);
 const linkKey = (token: string) => `guestlink:${createHash("sha256").update(token).digest("hex")}`;
 
 export const guestRequestLink = defineTool({
   name: "guest.request_link",
-  description: "Email a guest a link to see every event they are registered for, with their passes. Says the same whether or not the email is on any guest list, so it cannot be used to find out who is attending.",
+  description: "Email a guest a link to see every event they are registered for, with their passes. Says the same whether or not the email is on any guest list, so it cannot be used to find out who is attending. On a site with no mail server connected, the link is returned to be shown on screen instead.",
   permission: "guest.portal",
   risk: "write",
-  redact: ["email"],
+  redact: ["email", "link"],
   input: z.object({ email: z.string().trim().toLowerCase().max(200) }),
-  async handler(ctx, { email }) {
+  async handler(ctx, { email }): Promise<{ sent: true; link?: string }> {
     const [who] = await ctx.db.select().from(contact).where(eq(contact.email, email));
     const [any] = who ? await ctx.db.select({ id: registration.id }).from(registration).where(eq(registration.contactId, who.id)).limit(1) : [];
     if (who && any) {
@@ -33,6 +40,7 @@ export const guestRequestLink = defineTool({
         channel: "email", recipient: who.email, subject: "Your events and passes", contactId: who.id,
         body: [`Hi ${who.firstName},`, "", "Open this link to see the events you are registered for and your passes:", `${appUrl()}/my/enter/${token}`, "", `The link works once, for ${LINK_MINUTES} minutes. If you did not ask for it, ignore this email.`].join("\n"),
       });
+      if (!emailIsSetUp()) return { sent: true, link: `/my/enter/${token}` };
     }
     return { sent: true };
   },

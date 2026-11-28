@@ -9,6 +9,7 @@ import { Poster, hueStyle } from "@/components/poster";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { registerGuestAction } from "@/app/actions";
 import { initials } from "@/lib/describe";
+import { emailIsSetUp } from "@/tools/portal";
 
 export const dynamic = "force-dynamic";
 
@@ -79,7 +80,7 @@ export default async function PublicEvent({ params, searchParams }: { params: Pr
                 <div className="notice" style={{ margin: 0 }}>This event has been cancelled.</div>
               ) : done ? (
                 <>
-                  <div className="notice good">{done === "wait" ? "You're on the waitlist. We will email you the moment a place opens." : done === "pending" ? "Thanks. The organisers approve each guest, and we will email you as soon as they have decided." : "You're registered. Your pass is on its way by email."}</div>
+                  <div className="notice good">{done === "wait" ? "You're on the waitlist. We will email you the moment a place opens." : done === "pending" ? "Thanks. The organisers approve each guest, and we will email you as soon as they have decided." : emailIsSetUp() ? "You're registered. Your pass is on its way by email." : "You're registered. Open your events below to see your pass."}</div>
                   <div className="actions">
                     {done === "1" && e.startsAt && <a className="button" href={`/e/${e.slug}/calendar.ics`}>Add to your calendar</a>}
                     <Link className="button" href="/my">See your events and passes</Link>

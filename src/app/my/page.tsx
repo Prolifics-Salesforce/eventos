@@ -5,6 +5,7 @@ import { getDb } from "@/db/client";
 import { event, registration } from "@/db/schema";
 import { guestLinkAction, guestSignOutAction } from "@/app/actions";
 import { currentGuest } from "@/lib/guest";
+import { emailIsSetUp } from "@/tools/portal";
 import { formatWhen } from "@/lib/when";
 import { Poster } from "@/components/poster";
 import { ThemeToggle } from "@/components/theme-toggle";
@@ -34,15 +35,21 @@ export default async function MyEvents({ searchParams }: { searchParams: Promise
           {notice && <div className="notice" style={{ marginTop: 14 }}>{notice}</div>}
           {sent ? (
             <>
-              <p className="muted">If that email is on one of our guest lists, a link is on its way. Open it on this device to see your events and passes. It works for 30 minutes.</p>
-              <p className="small faint">Nothing arrived? Check the address and your spam folder, then <Link href="/my">try again</Link>.</p>
+              {emailIsSetUp() ? (
+                <>
+                  <p className="muted">If that email is on one of our guest lists, a link is on its way. Open it on this device to see your events and passes. It works for 30 minutes.</p>
+                  <p className="small faint">Nothing arrived? Check the address and your spam folder, then <Link href="/my">try again</Link>.</p>
+                </>
+              ) : (
+                <p className="muted">We could not find a registration for that email. Check the address, or register for an event first, then <Link href="/my">try again</Link>.</p>
+              )}
             </>
           ) : (
             <>
-              <p className="muted" style={{ margin: "8px 0 22px" }}>Enter the email you registered with. We will send you a link to see your events and passes. No password needed.</p>
+              <p className="muted" style={{ margin: "8px 0 22px" }}>{emailIsSetUp() ? "Enter the email you registered with. We will send you a link to see your events and passes. No password needed." : "Enter the email you registered with to see your events and passes. No password needed."}</p>
               <form action={guestLinkAction} className="stack">
                 <label>Email<input name="email" type="email" autoComplete="email" required autoFocus /></label>
-                <button type="submit">Email me a link</button>
+                <button type="submit">{emailIsSetUp() ? "Email me a link" : "Continue"}</button>
               </form>
             </>
           )}

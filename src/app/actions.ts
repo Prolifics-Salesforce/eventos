@@ -567,8 +567,10 @@ export async function guestLinkAction(form: FormData) {
   const address = (await headers()).get("x-forwarded-for")?.split(",")[0].trim() ?? "local";
   // Five requests an hour from one connection.
   if ((await limitHit(db, `guestlink:${address.slice(0, 80)}`, 3600_000)) <= 5) {
-    await invoke(db, await servicePrincipal(db, "Public site"), "guest.request_link", { email: text(form, "email") ?? "" });
+    const result = await invoke<{ link?: string }>(db, await servicePrincipal(db, "Public site"), "guest.request_link", { email: text(form, "email") ?? "" });
     deliverSoon();
+    // No mail server on this site: the link cannot be emailed, so the guest is taken straight to it.
+    if (result.status === "ok" && result.output.link) redirect(`${result.output.link}?direct=1`);
   }
   redirect("/my?sent=1");
 }
