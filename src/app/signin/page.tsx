@@ -20,6 +20,7 @@ export default async function SignIn({ searchParams }: { searchParams: Promise<{
           <button type="submit">Sign in</button>
         </form>
         <p className="small" style={{ margin: "16px 0 0" }}><a href="/reset">Forgot your password?</a></p>
+        <p className="small muted" style={{ margin: "18px 0 0", paddingTop: 16, borderTop: "1px solid var(--rule-soft)" }}>Attending an event? <a href="/my">See your events and passes</a>. This page is for the organising team.</p>
       </div>
     </div>
   );

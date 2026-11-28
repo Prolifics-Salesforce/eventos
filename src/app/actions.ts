@@ -209,12 +209,14 @@ export async function registerGuestAction(form: FormData) {
   // One visitor address may register 10 times an hour, so the form cannot be used to flood other people's inboxes.
   const address = (await headers()).get("x-forwarded-for")?.split(",")[0].trim() ?? "local";
   if ((await limitHit(db, `register:${address.slice(0, 80)}`, 3600_000)) > REGISTRATIONS_PER_HOUR) redirect(`${path}?notice=${encodeURIComponent("Too many registrations from this connection. Please try again in an hour.")}`);
-  const result = await invoke<{ status: string }>(db, await servicePrincipal(db, "Public site"), "registration.register_guest", {
+  const result = await invoke<{ status: string; registrationId?: string }>(db, await servicePrincipal(db, "Public site"), "registration.register_guest", {
     eventSlug: slug, email: text(form, "email"), firstName: text(form, "firstName"), lastName: text(form, "lastName"),
     phone: text(form, "phone"), whatsappOptIn: form.get("whatsappOptIn") === "on", answers: answersFrom(form),
   });
   deliverSoon();
-  const outcome = result.status === "ok" ? ({ waitlisted: "wait", pending: "pending" } as Record<string, string>)[result.output.status] ?? "1" : "";
+  // Someone who has just registered is shown their pass straight away, rather than being told to wait for an email.
+  if (result.status === "ok" && result.output.registrationId) redirect(`${path}/pass/${result.output.registrationId}?welcome=1`);
+  const outcome = result.status === "ok" ? ({ waitlisted: "wait", pending: "pending", existing: "already" } as Record<string, string>)[result.output.status] ?? "1" : "";
   redirect(result.status === "ok" ? `${path}?done=${outcome}` : `${path}?notice=${encodeURIComponent(explain(result))}`);
 }
 

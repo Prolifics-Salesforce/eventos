@@ -80,7 +80,7 @@ export default async function PublicEvent({ params, searchParams }: { params: Pr
                 <div className="notice" style={{ margin: 0 }}>This event has been cancelled.</div>
               ) : done ? (
                 <>
-                  <div className="notice good">{done === "wait" ? "You're on the waitlist. We will email you the moment a place opens." : done === "pending" ? "Thanks. The organisers approve each guest, and we will email you as soon as they have decided." : emailIsSetUp() ? "You're registered. Your pass is on its way by email." : "You're registered. Open your events below to see your pass."}</div>
+                  <div className="notice good">{done === "already" ? "You're already registered for this event. Open your events to see your pass." : done === "wait" ? "You're on the waitlist. We will email you the moment a place opens." : done === "pending" ? "Thanks. The organisers approve each guest, and we will email you as soon as they have decided." : emailIsSetUp() ? "You're registered. Your pass is on its way by email." : "You're registered. Open your events below to see your pass."}</div>
                   <div className="actions">
                     {done === "1" && e.startsAt && <a className="button" href={`/e/${e.slug}/calendar.ics`}>Add to your calendar</a>}
                     <Link className="button" href="/my">See your events and passes</Link>

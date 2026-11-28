@@ -152,7 +152,8 @@ export const registrationRegisterGuest = defineTool({
       .returning({ id: registration.id });
     // A request tells the guest it was received; a place tells them they are in.
     await ctx.emit(status === "pending" ? "registration.requested" : "registration.created", { eventId: target.id, registrationId: row.id, contactId: person.id, status });
-    return { registered: true, created: true, status };
+    // The id is given only for a registration made just now, by this person. One that already existed may be someone else's.
+    return { registered: true, created: true, status, registrationId: row.id };
   },
 });
 

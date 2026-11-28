@@ -17,9 +17,9 @@ export const metadata = { robots: { index: false, follow: false } };
  * It is whatever they need next: a reply to an invitation, a pass, a place on
  * the waitlist, or a question about how the event went.
  */
-export default async function Pass({ params, searchParams }: { params: Promise<{ slug: string; id: string }>; searchParams: Promise<{ notice?: string; thanks?: string }> }) {
+export default async function Pass({ params, searchParams }: { params: Promise<{ slug: string; id: string }>; searchParams: Promise<{ notice?: string; thanks?: string; welcome?: string }> }) {
   const { slug, id } = await params;
-  const { notice, thanks } = await searchParams;
+  const { notice, thanks, welcome } = await searchParams;
   if (!/^[0-9a-f-]{36}$/i.test(id)) notFound();
   const db = await getDb();
   const [row] = await db.select({ r: registration, c: contact, e: event }).from(registration)
@@ -47,6 +47,12 @@ export default async function Pass({ params, searchParams }: { params: Promise<{
         <div className="tear" />
         <div className="stub">
           {notice && <div className="notice">{notice}</div>}
+          {welcome && e.status !== "cancelled" && (state === "registered" || state === "waitlisted" || state === "pending") && (
+            <div className="notice good">
+              {state === "registered" ? "You're registered. This is your pass." : state === "waitlisted" ? "You're on the waitlist." : "Your request is in."}{" "}
+              You can come back to it any time: open <a href="/my">Your events</a> and enter your email.
+            </div>
+          )}
           <p className="small" style={{ margin: "0 0 10px", opacity: 0.7 }}><a href="/my" style={{ color: "inherit", textDecoration: "underline" }}>All my events</a></p>
           {e.status === "cancelled" && <div className="notice">This event has been cancelled.</div>}
           {state === "pending" && (
